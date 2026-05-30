@@ -23,6 +23,7 @@ import { resolveLexiconSchema } from './lexicon';
 import { lexiconToResourceMapperFields } from './fieldMapping';
 import { applyBlobUploads } from './blob';
 import { injectNestedTypes } from './typeInjection';
+import { validateRecord } from './validation';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -552,6 +553,20 @@ export class Atproto implements INodeType {
               agent,
             );
 
+            // Phase 5: validate before sending
+            const createErrors = await validateRecord(
+              recordWithTypes,
+              schema,
+              agent,
+            );
+            if (createErrors.length > 0) {
+              throw new NodeOperationError(
+                this.getNode(),
+                `Record validation failed:\n• ${createErrors.join('\n• ')}`,
+                { itemIndex: i },
+              );
+            }
+
             const res = await createRecord(agent, {
               collection,
               rkey,
@@ -606,6 +621,20 @@ export class Atproto implements INodeType {
               schema,
               agent,
             );
+
+            // Phase 5: validate before sending
+            const putErrors = await validateRecord(
+              recordWithTypes,
+              schema,
+              agent,
+            );
+            if (putErrors.length > 0) {
+              throw new NodeOperationError(
+                this.getNode(),
+                `Record validation failed:\n• ${putErrors.join('\n• ')}`,
+                { itemIndex: i },
+              );
+            }
 
             const res = await putRecord(agent, {
               collection,

@@ -102,6 +102,58 @@ function isRgbColorDef(resolved: ResolvedRef): boolean {
 }
 
 /**
+ * Format displayName for multi-ref union fields.
+ *
+ * Shows the possible `$type` values so users know what to put in the JSON.
+ * E.g. `embed (set $type to one of: images, external, record)`
+ */
+function formatUnionDisplayName(
+  name: string,
+  prop: LexiconProperty,
+): string {
+  const desc = prop.description?.replace(/\.\s*$/, '');
+  if (prop.refs?.length) {
+    const shortNames = prop.refs.map((r) => {
+      const frag = r.indexOf('#');
+      if (frag >= 0) return r.slice(frag + 1);
+      const parts = r.split('.');
+      return parts[parts.length - 1];
+    });
+    const typeList =
+      shortNames.length <= 3
+        ? shortNames.join(', ')
+        : `${shortNames.slice(0, 2).join(', ')}, …`;
+    return desc
+      ? `${name} (${desc} — set $type to: ${typeList})`
+      : `${name} (set $type to: ${typeList})`;
+  }
+  return desc ? `${name} (${desc})` : name;
+}
+
+/**
+ * Format displayName for array fields.
+ *
+ * Shows the item type and description.
+ * E.g. `facets (JSON array of app.bsky.richtext.facet)`
+ */
+function formatArrayDisplayName(
+  name: string,
+  prop: LexiconProperty,
+): string {
+  const desc = prop.description?.replace(/\.\s*$/, '');
+  const itemRef =
+    prop.items?.ref ?? prop.items?.refs?.[0];
+  const itemHint = itemRef
+    ? `JSON array of ${itemRef}`
+    : prop.items?.type === 'string'
+      ? 'list of strings'
+      : 'JSON array';
+  return desc
+    ? `${name} (${desc} — ${itemHint})`
+    : `${name} (${itemHint})`;
+}
+
+/**
  * Create a single hex-color string field instead of 3–4 separate number
  * fields for RGB(A) color refs.
  */
@@ -223,9 +275,7 @@ async function propToFields(
 
   // --- multi-ref union types: always object (too complex for flattening) ---
   if (prop.type === 'union') {
-    const displayName = prop.description
-      ? `${name} (${prop.description})`
-      : name;
+    const displayName = formatUnionDisplayName(name, prop);
     return [
       {
         id: name,
@@ -243,10 +293,11 @@ async function propToFields(
     const itemType = prop.items
       ? lexiconTypeToFieldType(prop.items)
       : 'json';
+    const displayName = formatArrayDisplayName(name, prop);
     return [
       {
         id: name,
-        displayName: name,
+        displayName,
         required,
         defaultMatch: false,
         display: true,
