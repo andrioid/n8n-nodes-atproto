@@ -189,7 +189,7 @@ Handled by `@atproto/api`'s `CredentialSession` + `AtpAgent`, identical to the e
 
 ### Session lifecycle
 
-Sessions are cached and refreshed across workflow executions. The node stores `accessJwt` and `refreshJwt` in n8n's credential state and uses the refresh token to obtain new access tokens when they expire, avoiding a `createSession` call on every execution.
+The node calls `session.login()` on every workflow execution. Within a single execution, `CredentialSession` automatically handles token refresh if the `accessJwt` expires mid-batch (e.g. during a large loop). No cross-execution caching — n8n's `getWorkflowStaticData` is unreliable and doesn't work in manual test mode, and the overhead of one `createSession` call per execution is negligible for app passwords.
 
 ## Dependencies
 
@@ -198,7 +198,7 @@ Sessions are cached and refreshed across workflow executions. The node stores `a
 | Package | Purpose |
 |---------|---------|
 | `@atproto/api` | Auth (`CredentialSession`), session management (token refresh, persistence), XRPC calls, DID/PDS resolution |
-| `@atproto/lexicon-resolver` | Fallback lexicon resolution via DNS when PDS doesn't support `resolveLexicon`. Installed from Phase 1, used in Phase 2. Shares most transitive deps with `@atproto/api` (`@atproto/xrpc`, `@atproto/lexicon`, `@atproto/syntax`, `@atproto/identity`, `multiformats`) |
+| `@atproto/lexicon-resolver` | Fallback lexicon resolution via DNS when PDS doesn't support `resolveLexicon`. Installed from Phase 1, used in Phase 2. Deps: `@atproto/lex`, `@atproto/lex-document`, `@atproto/repo`, `@atproto/syntax`, `@atproto/identity`, `@atproto-labs/fetch-node` (only `@atproto/syntax` shared with `@atproto/api`) |
 
 ### Peer
 
@@ -211,9 +211,10 @@ Sessions are cached and refreshed across workflow executions. The node stores `a
 | Package | Purpose |
 |---------|---------|
 | `typescript` ~5.x | Build (tsc + shell cp for icon — no gulp) |
-| `@n8n/node-cli` ≥0.23.0 | Build + provenance for npm publish |
-| `oxlint` | Linting (Rust-native, runs n8n plugin via jsPlugins) + formatting via oxfmt |
-| `@n8n/eslint-plugin-community-nodes` | n8n-specific lint rules (loaded as oxlint JS plugin) |
+| `@n8n/node-cli` ≥0.32.0 | Build + provenance for npm publish |
+| `oxlint` | Linting (Rust-native, runs n8n plugin via jsPlugins alpha — fallback: eslint for n8n rules) |
+| `oxfmt` | Formatting (separate package, Prettier-compatible, `.oxfmtrc.json`) |
+| `@n8n/eslint-plugin-community-nodes` | n8n-specific lint rules (loaded as oxlint JS plugin; eslint fallback) |
 | `vitest` | Test runner (ESM-native, TypeScript zero-config) |
 | `msw` or similar | Mock XRPC server for tests |
 

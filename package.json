@@ -1,0 +1,51 @@
+{
+  "name": "n8n-nodes-atproto",
+  "version": "0.1.0",
+  "description": "Generic AT Protocol node for n8n — CRUD any record in any lexicon",
+  "keywords": [
+    "n8n-community-node-package"
+  ],
+  "license": "MIT",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "n8n-node dev",
+    "build": "n8n-node build",
+    "lint": "oxlint src/",
+    "format": "oxfmt --write src/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "release": "n8n-node release"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/AtprotoApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Atproto/Atproto.node.js"
+    ]
+  },
+  "dependencies": {
+    "@atproto/api": "^0.20.6",
+    "@atproto/lexicon-resolver": "^0.4.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  },
+  "devDependencies": {
+    "@n8n/eslint-plugin-community-nodes": "latest",
+    "@n8n/node-cli": "^0.32.0",
+    "msw": "^2.0.0",
+    "n8n-workflow": "^2.16.0",
+    "oxfmt": "latest",
+    "oxlint": "latest",
+    "typescript": "^5.0.0",
+    "vitest": "latest"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

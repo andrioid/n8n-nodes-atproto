@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- AT Protocol butterfly logo - simplified vector -->
+  <circle cx="32" cy="32" r="30" fill="#1A1A2E"/>
+  <path d="M32 12C24 12 18 18 18 26C18 30 20 34 23 36L32 52L41 36C44 34 46 30 46 26C46 18 40 12 32 12Z" fill="#4A90D9" opacity="0.9"/>
+  <path d="M32 16C26 16 22 20 22 26C22 30 24 33 27 35L32 44L37 35C40 33 42 30 42 26C42 20 38 16 32 16Z" fill="#6BB5FF" opacity="0.8"/>
+  <path d="M32 20C28 20 26 23 26 26C26 29 27 30 29 31L32 36L35 31C37 30 38 29 38 26C38 23 36 20 32 20Z" fill="#FFFFFF" opacity="0.9"/>
+</svg>

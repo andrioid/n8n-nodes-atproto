@@ -13,7 +13,7 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 | 3 | List pagination | One page per execution + cursor | Standard n8n pattern; user chains/loops |
 | 4 | Put semantics | Full replace + optional `swapRecord` CID | Matches protocol; concurrency safety |
 | 5 | Lexicon resolution failure | Warning + fallback to raw JSON | Non-blocking; user can always proceed |
-| 6 | Session management | Cache + refresh tokens across executions | Avoids `createSession` on every run |
+| 6 | Session management | Login per execution; `CredentialSession` auto-refreshes within execution | `getWorkflowStaticData` is unreliable and doesn't work in manual test mode; login overhead is negligible for app passwords |
 | 7 | Nested `ref` types | Recursive resolution for typed sub-fields | Better UX for complex records |
 | 8 | Testing | Mocks (vitest + msw) + manual Bluesky testing | Docker integration deferred to post-Phase 1 |
 | 9 | `createdAt` | Auto-inject if schema requires it; user can override | Same pattern as `$type` but schema-conditional |
@@ -24,8 +24,8 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 |---------|------|-------|
 | Dev server | `n8n-node dev` | Hot reload. Edit → save → auto-rebuild → refresh browser. |
 | Build | `n8n-node build` | Handles TypeScript + icon copying. No custom scripts. |
-| Lint | `oxlint` + `@n8n/eslint-plugin-community-nodes` via jsPlugins | Rust-native speed. n8n rules for pre-publish. |
-| Format | `oxfmt` | Ships with oxlint. Single config file. |
+| Lint | `oxlint` + `@n8n/eslint-plugin-community-nodes` via jsPlugins | Rust-native speed. jsPlugins is alpha (99.5% pass rate on popular plugins) — if it fails with this plugin, fall back to eslint for n8n rules only. |
+| Format | `oxfmt` | Separate npm package (not bundled with oxlint). Config file: `.oxfmtrc.json`. |
 | Test | `vitest` + `msw` | ESM-native. Mock XRPC server. |
 | Publish | `n8n-node release` | Builds, lints, tags, publishes to npm with provenance. |
 
@@ -34,11 +34,13 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 ### Runtime (2 packages)
 
 ```
-@atproto/api          — CredentialSession, Agent, XRPC, DID resolution
+@atproto/api              — CredentialSession, Agent, XRPC, DID resolution
+                            deps: @atproto/lexicon, @atproto/xrpc, @atproto/syntax, @atproto/common-web, multiformats, zod
 @atproto/lexicon-resolver — DNS-based lexicon resolution (fallback for Phase 2)
+                            deps: @atproto/lex, @atproto/lex-document, @atproto/repo, @atproto/syntax, @atproto/identity, @atproto-labs/fetch-node
 ```
 
-They share 5 transitive deps (`@atproto/xrpc`, `@atproto/lexicon`, `@atproto/syntax`, `multiformats`, `@atproto/identity`). Marginal cost of the second package is just `@atproto/repo` + `@atproto-labs/fetch-node`.
+They share only `@atproto/syntax`. The lexicon-resolver brings its own substantial dep tree — but it's only needed at editor-time (Phase 2 `resourceMapperMethod`), not on every execution.
 
 ### Peer (1 package)
 
@@ -46,13 +48,14 @@ They share 5 transitive deps (`@atproto/xrpc`, `@atproto/lexicon`, `@atproto/syn
 n8n-workflow           — provided by n8n at runtime
 ```
 
-### Dev (5 packages)
+### Dev (6 packages)
 
 ```
 typescript             — compiler
 @n8n/node-cli          — build + npm provenance
-oxlint                 — lint + format (includes oxfmt)
-@n8n/eslint-plugin-community-nodes — n8n rules via jsPlugins
+oxlint                 — lint (jsPlugins alpha for ESLint plugin compat)
+oxfmt                  — format (separate package, Prettier-compatible)
+@n8n/eslint-plugin-community-nodes — n8n rules loaded via oxlint jsPlugins (fallback: eslint)
 vitest                 — test runner
 msw                    — mock XRPC server
 ```
@@ -142,16 +145,17 @@ n8n-nodes-atproto/
     "nodes": ["dist/nodes/Atproto/Atproto.node.js"]
   },
   "dependencies": {
-    "@atproto/api": "^0.19.0",
-    "@atproto/lexicon-resolver": "^0.2.0"
+    "@atproto/api": "^0.20.0",
+    "@atproto/lexicon-resolver": "^0.4.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"
   },
   "devDependencies": {
-    "@n8n/node-cli": "^0.30.0",
+    "@n8n/node-cli": "^0.32.0",
     "@n8n/eslint-plugin-community-nodes": "latest",
     "oxlint": "latest",
+    "oxfmt": "latest",
     "vitest": "latest",
     "msw": "^2.0.0",
     "typescript": "^5.0.0"
@@ -170,8 +174,12 @@ Extend n8n conventions: `target: ES2022`, `module: commonjs` (n8n requires CJS),
 
 ```jsonc
 {
-  "jsPlugins": ["@n8n/eslint-plugin-community-nodes"],
-  // n8n community node rules enabled for pre-publish checks
+  "jsPlugins": ["@n8n/eslint-plugin-community-nodes"]
+  // n8n community node rules via jsPlugins (alpha).
+  // If jsPlugins fails with this plugin, fall back:
+  //   1. Remove jsPlugins from oxlint.json
+  //   2. Add eslint + flat config for n8n rules only
+  //   3. Add "lint:n8n": "eslint" to scripts
 }
 ```
 
@@ -283,7 +291,7 @@ In `Atproto.node.ts`, implement `execute()`:
 6. Switch on operation, call the corresponding function from `operations.ts`
 7. Return output items with `{ json: result }`
 
-Session caching: use `this.getCredentials()` to retrieve cached tokens. On first run, call `createSession`. On subsequent runs, use cached `accessJwt`/`refreshJwt` via `CredentialSession.resumeSession()`. The agent handles refresh automatically.
+Session management: call `session.login()` on every execution. The `CredentialSession` automatically handles token refresh within a single execution (if `accessJwt` expires mid-batch, it transparently uses `refreshJwt`). No cross-execution caching — n8n's `getWorkflowStaticData` is unreliable and doesn't work in manual test mode. The overhead of one `createSession` call per execution is negligible for app passwords.
 
 ### 1.6 — Error handling
 
@@ -445,5 +453,5 @@ Before publishing:
 - [ ] README has install instructions for community nodes panel
 - [ ] `package.json` has correct `repository.url`, `author`, `description`
 - [ ] Icon displays correctly in n8n node palette
-- [ ] Publish with `npm publish --provenance` (requires `@n8n/node-cli` ≥0.23.0)
+- [ ] Publish with `npm publish --provenance` (requires `@n8n/node-cli` ≥0.32.0)
 - [ ] Submit for n8n community node verification

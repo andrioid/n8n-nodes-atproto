@@ -60,8 +60,8 @@
 
 ## Session Management
 
-- [ ] Cache `accessJwt` and `refreshJwt` in n8n credential state across executions
-- [ ] Use refresh token to obtain new access tokens when expired, avoiding `createSession` on every run
+- [ ] Call `session.login()` on every execution (simple + reliable)
+- [ ] Rely on `CredentialSession` auto-refresh within a single execution for long-running batches
 
 ## Distribution
 
