@@ -7,10 +7,10 @@
 | Phase 0 — Scaffolding | ✅ Done | n/a | `d9c7329` |
 | Phase 1 — Generic CRUD | ✅ Done | 35 | `d9c7329` |
 | Phase 2 — Dynamic field mapping | ✅ Done | 57 | `31140d5`, `34a5e16` (review fixes) |
-| Phase 3 — Blob support | ⏳ Not started | — | — |
+| Phase 3 — Blob support | ✅ Done | 11 | — |
 | Distribution | ⏳ Not started | — | — |
 
-**Current totals:** 92 tests passing, lint clean, build clean. **Pick up at Phase 3.**
+**Current totals:** 103 tests passing, lint clean, build clean.
 
 ## Decisions Log
 
@@ -454,18 +454,19 @@ When lexicon resolution fails:
 
 ---
 
-## Phase 3 — Blob Support ⏳ (next)
+## Phase 3 — Blob Support ✅
 
-> Not started. This is the natural next step.
+> Done. 11 tests covering blob upload, field identification, error paths, MIME detection, and record immutability.
 >
-> **Things Phase 2 set up that Phase 3 will use:**
-> - `lexiconTypeToFieldType` already maps `blob` → `'string'`, so the field renders as a string input where the user can name a binary property.
-> - `buildRecordFromNodeParams` already drops empty values — a blob field left blank won't try to upload anything.
-> - `Atproto.node.ts` `execute()` already has access to `this.helpers.getBinaryDataBuffer()` via `IExecuteFunctions`.
+> **Decisions made:**
+> - MIME type from binary metadata (falls back to `application/octet-stream`)
+> - Top-level blob fields only (not recursive into refs/objects)
+> - Rollback on first failure (first blob upload error stops processing)
+> - New file `src/nodes/Atproto/blob.ts` (separate from `operations.ts`)
 >
-> **What 3.1 needs to do:** during execute, walk the record looking for fields whose lexicon definition is `type: blob`. For each, read the binary buffer from the input item using the field's value as the binary property name, call `agent.com.atproto.repo.uploadBlob(data, { encoding: mimeType })`, and replace the field value with the returned blob reference.
+> **Resolved open question:** `applyBlobUploads(record, schema, agent, itemIndex, executeFunctions)` is called as an async post-processing step after `buildRecordFromNodeParams` in both the `createRecord` and `putRecord` execute branches. The execute path now also calls `resolveLexiconSchema` (with module-level cache) to determine which fields are blobs.
 >
-> **Open question for Phase 3:** the current `buildRecordFromNodeParams` runs synchronously and doesn't have access to the agent or input item's binary data. Blob handling needs an async post-processing step that takes the built record + the resolved lexicon schema + the input item and substitutes blob references. Plan that as `applyBlobUploads(record, schema, agent, item)` and call it after `buildRecordFromNodeParams` in the create/put switch cases.
+> **Key discovery:** `agent.com.atproto.repo.uploadBlob(data, opts)` takes two arguments (not a single `{ data, encoding }` object). The first is the raw binary buffer, the second is `{ encoding: mimeType }`. The XRPC client returns a `BlobRef` class instance (from `@atproto/lexicon`) which `stringifyLex` knows how to serialize for the subsequent `createRecord`/`putRecord` call.
 
 ### 3.1 — Blob upload
 

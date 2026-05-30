@@ -28,6 +28,12 @@ export const interceptedRequests: Array<{
   body?: unknown;
 }> = [];
 
+// Track blob uploads separately (binary body isn't JSON)
+export const uploadedBlobs: Array<{
+  mimeType: string;
+  data: ArrayBuffer;
+}> = [];
+
 // Default mock responses keyed by XRPC method
 interface MockResponses {
   [method: string]: (body?: unknown) => Record<string, unknown>;
@@ -81,6 +87,8 @@ const defaultResponses: MockResponses = {
     ],
     cursor: 'next-page-cursor',
   }),
+  // Note: uploadBlob is handled by a dedicated handler below (binary body,
+  // not JSON) so this entry is only reached via setMockResponse overrides.
 };
 
 // Allow tests to override specific responses
@@ -99,6 +107,10 @@ export function clearMockResponses(): void {
 
 export function clearInterceptedRequests(): void {
   interceptedRequests.length = 0;
+}
+
+export function clearUploadedBlobs(): void {
+  uploadedBlobs.length = 0;
 }
 
 // Helper: match any XRPC request and extract the method name
@@ -190,6 +202,39 @@ export const server = setupServer(
   }),
 
   // Phase 2: Lexicon resolution
+  // Phase 3: Blob upload — binary body, not JSON, so handle separately
+  http.post(xrpcRegex('com.atproto.repo.uploadBlob'), async ({ request }) => {
+    const encoding = request.headers.get('content-type') ?? 'application/octet-stream';
+    const blobData = await request.clone().arrayBuffer();
+    const mockBody = { data: blobData, encoding };
+
+    // Still record for assertion tracking
+    interceptedRequests.push({
+      method: 'POST',
+      url: request.url,
+      body: { encoding, byteLength: blobData.byteLength },
+    });
+
+    uploadedBlobs.push({
+      mimeType: encoding,
+      data: blobData,
+    });
+
+    const handler = responseOverrides['com.atproto.repo.uploadBlob'];
+    if (handler) {
+      return HttpResponse.json(handler(mockBody));
+    }
+
+    return HttpResponse.json({
+      blob: {
+        $type: 'blob',
+        ref: { $link: CID_3 },
+        mimeType: encoding,
+        size: blobData.byteLength,
+      },
+    });
+  }),
+
   http.get(xrpcRegex('com.atproto.lexicon.resolveLexicon'), async ({ request }) => {
     const url = new URL(request.url);
     const nsid = url.searchParams.get('nsid') ?? '';

@@ -20,6 +20,7 @@ import {
 import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
 import { lexiconToResourceMapperFields } from './fieldMapping';
+import { applyBlobUploads } from './blob';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -416,10 +417,20 @@ export class Atproto implements INodeType {
             const record = buildRecordFromNodeParams(recordData);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
+            // Phase 3: upload blobs referenced by binary property names
+            const schema = await resolveLexiconSchema(agent, collection);
+            const recordWithBlobs = await applyBlobUploads(
+              record,
+              schema,
+              agent,
+              i,
+              this,
+            );
+
             const res = await createRecord(agent, {
               collection,
               rkey,
-              record,
+              record: recordWithBlobs,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;
@@ -445,10 +456,20 @@ export class Atproto implements INodeType {
             const record = buildRecordFromNodeParams(recordData);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
+            // Phase 3: upload blobs referenced by binary property names
+            const schema = await resolveLexiconSchema(agent, collection);
+            const recordWithBlobs = await applyBlobUploads(
+              record,
+              schema,
+              agent,
+              i,
+              this,
+            );
+
             const res = await putRecord(agent, {
               collection,
               rkey,
-              record,
+              record: recordWithBlobs,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;
