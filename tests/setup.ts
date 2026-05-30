@@ -8,6 +8,8 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 
+import { APP_BSKY_FEED_POST, PRIMITIVE_ONLY } from './mockLexicons';
+
 export const PDS_URL = 'https://bsky.social';
 
 // Fake DID/handle for test identity
@@ -137,6 +139,25 @@ function xrpcRegex(method: string): RegExp {
   return new RegExp(`^${PDS_URL.replace(/\./g, '\\.')}/xrpc/${escaped}(\\?.*)?$`);
 }
 
+// Default lexicon mock response — uses valid CID strings to pass format validation.
+function defaultLexiconResponse(nsid: string) {
+  if (nsid === 'app.bsky.feed.post') {
+    return {
+      cid: CID_1,
+      uri: `at://${FAKE_DID}/com.atproto.lexicon.schema/${nsid.replace(/\./g, '_')}`,
+      schema: APP_BSKY_FEED_POST,
+    };
+  }
+  if (nsid === 'io.example.primitive') {
+    return {
+      cid: CID_2,
+      uri: `at://${FAKE_DID}/com.atproto.lexicon.schema/${nsid.replace(/\./g, '_')}`,
+      schema: PRIMITIVE_ONLY,
+    };
+  }
+  throw Object.assign(new Error('LexiconNotFound'), { status: 404 });
+}
+
 export const server = setupServer(
   http.post(xrpcRegex('com.atproto.server.createSession'), async ({ request }) => {
     const body = await captureRequest(request);
@@ -166,5 +187,34 @@ export const server = setupServer(
   http.get(xrpcRegex('com.atproto.repo.listRecords'), async ({ request }) => {
     await captureRequest(request);
     return xrpcHandler('com.atproto.repo.listRecords');
+  }),
+
+  // Phase 2: Lexicon resolution
+  http.get(xrpcRegex('com.atproto.lexicon.resolveLexicon'), async ({ request }) => {
+    const url = new URL(request.url);
+    const nsid = url.searchParams.get('nsid') ?? '';
+    await captureRequest(request);
+
+    const handler = responseOverrides['com.atproto.lexicon.resolveLexicon'];
+    if (handler) {
+      return HttpResponse.json(handler({ nsid }));
+    }
+
+    // Default behavior: resolve known mock lexicons
+    try {
+      const result = defaultLexiconResponse(nsid);
+      return HttpResponse.json(result);
+    } catch {
+      return HttpResponse.json(
+        { error: 'LexiconNotFound', message: `No mock lexicon for ${nsid}` },
+        { status: 404 },
+      );
+    }
+  }),
+
+  // Catch-all: bypass any unhandled request (DID resolution, etc.)
+  // to avoid MSW errors when @atproto/api makes internal requests.
+  http.all('*', async () => {
+    return HttpResponse.json({}, { status: 200 });
   }),
 );

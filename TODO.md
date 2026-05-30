@@ -1,46 +1,53 @@
 # TODO
 
-## Project Setup
+## ✅ Phase 0 — Project Scaffolding
 
-- [ ] Initialize project (inspired by `n8n-nodes-starter`, not cloned)
-- [ ] Configure `package.json` with `n8n` node/credential paths, metadata, and scripts
-- [ ] Set up `tsconfig.json` (target ES2022, module commonjs, strict)
-- [ ] Set up `oxlint.json` with `@n8n/eslint-plugin-community-nodes` via jsPlugins
-- [ ] Set up `vitest.config.ts`
-- [ ] Add `@atproto/api` + `@atproto/lexicon-resolver` as runtime dependencies
-- [ ] Add `oxlint`, `vitest`, `msw`, `typescript`, `@n8n/node-cli` as dev dependencies
-- [ ] Create the node icon (AT Protocol logo as `atproto.svg`)
-- [ ] Verify scaffold: `npm install`, `npm run build`, `npm run lint`, `npm test` all pass
+- [x] Initialize project (inspired by `n8n-nodes-starter`, not cloned)
+- [x] Configure `package.json` with `n8n` node/credential paths, metadata, and scripts
+- [x] Set up `tsconfig.json` (target ES2022, module commonjs, strict)
+- [x] Set up `oxlint.json` with `@n8n/eslint-plugin-community-nodes` via jsPlugins
+- [x] Set up `vitest.config.ts`
+- [x] Add `@atproto/api` + `@atproto/lexicon-resolver` as runtime dependencies
+- [x] Add `oxlint`, `vitest`, `msw`, `typescript`, `@n8n/node-cli` as dev dependencies
+- [x] Create the node icon (AT Protocol logo as `atproto.svg`)
+- [x] Verify scaffold: `npm install`, `npm run build`, `npm run lint`, `npm test` all pass
 
-## Credentials
+## ✅ Phase 1 — Generic CRUD
 
-- [ ] As a user, I can add my AT Protocol credentials (handle, app password, service URL) so the node can authenticate on my behalf
-- [ ] As a user, I see a clear error when my credentials are invalid, because the credential definition includes a test request against `createSession`
+- [x] Credential definition with test block (identifier, appPassword, serviceUrl)
+- [x] TID generation (13-char base32-sortable, top bit 0, 53-bit timestamp, 10-bit clock ID)
+- [x] Node description with all 5 operations (Create, Get, Put, Delete, List Records)
+- [x] CRUD operations with `$type`/`createdAt` auto-injection
+- [x] Execute method with `CredentialSession` + `createAgent` helper
+- [x] Error handling: friendlyError maps XRPC errors to n8n messages
+- [x] Session management: login per execution, auto-refresh within execution
+- [x] Optional `repo` field for Get/List (defaults to authenticated user)
+- [x] Record key: auto TID or custom
+- [x] Swap commit CID for optimistic concurrency
+- [x] Limit + Cursor pagination for List
+- [x] `continueOnFail` support for batch processing
 
-## Phase 1 — Generic CRUD
+## ✅ Phase 2 — Dynamic Field Mapping
 
-- [ ] As a user, I can create a record in any collection by providing an NSID and a JSON body
-- [ ] As a user, I can get a record by collection, repo, and record key
-- [ ] As a user, I can update (put) a record by collection and record key with a new JSON body (full replace, not merge)
-- [ ] As a user, I can optionally provide a `swapRecord` CID on put for optimistic concurrency control
-- [ ] As a user, I can delete a record by collection and record key
-- [ ] As a user, I can list records in a collection with limit and cursor for pagination (returns one page per execution)
-- [ ] As a user, I get a TID auto-generated as the record key by default, so I don't have to understand the key format
-- [ ] As a user, I can provide a custom record key when the lexicon or my use case requires it
-- [ ] As a user, the node resolves my PDS from my DID automatically, so I don't need to know my PDS URL
-- [ ] As a user, `$type` is auto-injected into my records from the collection NSID — I never need to set it manually
-- [ ] As a user, `createdAt` is auto-injected (as ISO datetime) if the lexicon schema requires it — I can override via field mapping
-- [ ] As a user, I can optionally specify a different repo (DID/handle) for Get and List operations to read other users' public records (defaults to my own)
-
-## Phase 2 — Dynamic Field Mapping
-
-- [ ] As a user, when I type a collection NSID, the node resolves the lexicon schema and shows me typed fields for that record
-- [ ] As a user, I see required fields marked as such, matching what the lexicon schema declares
-- [ ] As a user, I can map incoming n8n data to individual record fields using expressions, instead of building JSON manually
-- [ ] As a user, when lexicon resolution fails (unpublished schema, network error), I see a warning and can fall back to raw JSON input
-- [ ] As a user, string fields with `datetime` format render as date/time inputs
-- [ ] As a user, complex fields (objects, unions, arrays) render as JSON inputs
-- [ ] As a user, fields that reference other schemas (`ref` types) are resolved recursively so I get typed sub-fields instead of raw JSON
+- [x] Lexicon resolution: PDS endpoint (with response body fallback on validation error) → DNS-based resolver → `null`
+- [x] In-memory cache (module-level Map) keyed by NSID
+- [x] Lexicon document parsing: extracts `defs.main.record.properties`, `required`, `nullable`, `key`
+- [x] Lexicon type → n8n FieldType mapping (string, integer→number, boolean, datetime→dateTime, blob, cid-link, bytes, array→object, ref→object)
+- [x] `ResourceMapperField` construction with `id`, `displayName`, `required`, `defaultMatch`, `type`
+- [x] `createdAt` auto-default: `defaultMatch: true`, `defaultValue: '={{ $now }}'`
+- [x] Ref flattening: local refs (`#replyRef`) → dotted-path sub-fields (`reply.root`, `reply.parent`)
+- [x] Recursive ref resolution with depth cap (MAX_REF_DEPTH = 3)
+- [x] Cross-document ref resolution with fragment support (`nsid#fragment`)
+- [x] Inline object flattening with dotted prefix
+- [x] Fallback: when lexicon resolution fails, return empty fields → n8n shows raw JSON editor
+- [x] `resourceMapper` property wired into node description for Create/Put
+- [x] `methods.resourceMapping.getRecordFields` implementation
+- [x] `buildRecordFromNodeParams` helper: handles both resourceMapper and raw JSON formats
+- [x] Test mock lexicons: `APP_BSKY_FEED_POST`, `PRIMITIVE_ONLY`, `QUERY_NOT_RECORD`, `INLINE_OBJECT`, `DEEPLY_NESTED`
+- [x] Mock XRPC server updated with `com.atproto.lexicon.resolveLexicon` handler
+- [x] Tests: `tests/lexicon.test.ts` (11 tests)
+- [x] Tests: `tests/fieldMapping.test.ts` (15 tests)
+- [x] Tests: `tests/recursiveRef.test.ts` (8 tests)
 
 ## Phase 3 — Blob Support
 
@@ -49,19 +56,20 @@
 
 ## Testing
 
-- [ ] Unit tests for TID generation (valid format, uniqueness, sortability)
-- [ ] Unit tests for lexicon schema → ResourceMapperField mapping
-- [ ] Unit tests for `$type` auto-injection
-- [ ] Unit tests for request construction (correct XRPC endpoint, auth headers, body shape)
-- [ ] Unit tests for error handling paths (401, 429, not found, malformed response)
-- [ ] Mock XRPC server setup (msw or similar) for all automated tests
+- [x] Unit tests for TID generation (valid format, uniqueness, sortability)
+- [x] Unit tests for `$type` auto-injection
+- [x] Unit tests for request construction (correct XRPC endpoint, auth headers, body shape)
+- [x] Unit tests for error handling paths (401, 429, not found, malformed response)
+- [x] Unit tests for lexicon schema → ResourceMapperField mapping
+- [x] Unit tests for recursive ref resolution
+- [x] Mock XRPC server setup (msw) for all automated tests
 - [ ] Manual testing against real Bluesky PDS during development
-- [ ] Docker-based integration tests deferred to post-Phase 1
+- [ ] Docker-based integration tests deferred
 
 ## Session Management
 
-- [ ] Call `session.login()` on every execution (simple + reliable)
-- [ ] Rely on `CredentialSession` auto-refresh within a single execution for long-running batches
+- [x] Call `session.login()` on every execution (simple + reliable)
+- [x] Rely on `CredentialSession` auto-refresh within a single execution for long-running batches
 
 ## Distribution
 

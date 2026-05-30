@@ -1,9 +1,13 @@
 import type {
   IDataObject,
   IExecuteFunctions,
+  ILoadOptionsFunctions,
   INodeExecutionData,
+  INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
+  ResourceMapperField,
+  ResourceMapperFields,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
 import { Agent, CredentialSession } from '@atproto/api';
@@ -16,6 +20,12 @@ import {
   putRecord,
 } from './operations';
 import { generateTid } from './tid';
+import { resolveLexiconSchema } from './lexicon';
+import { lexiconToResourceMapperFields } from './fieldMapping';
+
+// ---------------------------------------------------------------------------
+// Error handling
+// ---------------------------------------------------------------------------
 
 /**
  * Maps XRPC error messages to user-friendly descriptions.
@@ -58,6 +68,24 @@ function friendlyError(error: unknown, context?: Record<string, string>): string
   }
   return message;
 }
+
+// ---------------------------------------------------------------------------
+// Helper: create an authenticated Agent from node credentials
+// ---------------------------------------------------------------------------
+
+async function createAgent(credentials: IDataObject): Promise<Agent> {
+  const identifier = credentials.identifier as string;
+  const appPassword = credentials.appPassword as string;
+  const serviceUrl = (credentials.serviceUrl as string) || 'https://bsky.social';
+
+  const session = new CredentialSession(new URL(serviceUrl));
+  await session.login({ identifier, password: appPassword });
+  return new Agent(session);
+}
+
+// ---------------------------------------------------------------------------
+// Node
+// ---------------------------------------------------------------------------
 
 export class Atproto implements INodeType {
   description: INodeTypeDescription = {
@@ -226,24 +254,33 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Record Data — JSON for Phase 1
+      // Record Data — resourceMapper for Create/Put (Phase 2)
+      // Falls back to JSON when lexicon cannot be resolved.
       // ------------------------------------------------------------------
       {
         displayName: 'Record Data',
         name: 'recordData',
-        type: 'json',
+        type: 'resourceMapper',
+        default: {
+          mappingMode: 'defineBelow',
+          value: null,
+        },
         required: true,
         typeOptions: {
-          rows: 8,
+          resourceMapper: {
+            resourceMapperMethod: 'getRecordFields',
+            mode: 'add',
+            fieldWords: {
+              singular: 'field',
+              plural: 'fields',
+            },
+          },
         },
-        description:
-          'The record data as JSON. The $type field is auto-injected from the collection NSID.',
         displayOptions: {
           show: {
             operation: ['createRecord', 'putRecord'],
           },
         },
-        default: '{\n  "text": "Hello, AT Protocol!"\n}',
       },
 
       // ------------------------------------------------------------------
@@ -306,27 +343,57 @@ export class Atproto implements INodeType {
     ],
   };
 
+  // -----------------------------------------------------------------------
+  // Resource mapper method — called in the n8n editor to resolve fields
+  // -----------------------------------------------------------------------
+  methods = {
+    resourceMapping: {
+      getRecordFields: async function (
+        this: ILoadOptionsFunctions,
+      ): Promise<ResourceMapperFields> {
+        const nsid = this.getNodeParameter('collection') as string;
+
+        if (!nsid) {
+          return { fields: [] };
+        }
+
+        // Try to get credentials for PDS-based resolution
+        let agent: Agent | null = null;
+        try {
+          const credentials = await this.getCredentials('atprotoApi');
+          if (credentials) {
+            agent = await createAgent(credentials as IDataObject);
+          }
+        } catch {
+          // Credentials not available — fall back to DNS-based resolution
+          agent = null;
+        }
+
+        const schema = await resolveLexiconSchema(agent, nsid);
+
+        if (!schema) {
+          // Cannot resolve — return empty fields. n8n will show a warning
+          // and the user can switch to JSON mode or provide a raw JSON value
+          // via an expression.
+          return { fields: [] };
+        }
+
+        const fields = await lexiconToResourceMapperFields(schema, agent);
+        return { fields };
+      },
+    },
+  };
+
+  // -----------------------------------------------------------------------
+  // Execute — called at workflow runtime
+  // -----------------------------------------------------------------------
   async execute(this: IExecuteFunctions) {
     const items = this.getInputData();
     const returnData: INodeExecutionData[] = [];
 
     // Get credentials once — shared across all items in this execution
     const credentials = await this.getCredentials('atprotoApi');
-    const identifier = credentials.identifier as string;
-    const appPassword = credentials.appPassword as string;
-    const serviceUrl = (credentials.serviceUrl as string) || 'https://bsky.social';
-
-    // Create session and authenticate
-    const session = new CredentialSession(new URL(serviceUrl));
-    try {
-      await session.login({ identifier, password: appPassword });
-    } catch (error) {
-      throw new NodeOperationError(
-        this.getNode(),
-        `Authentication failed — check your app password: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-    const agent = new Agent(session);
+    const agent = await createAgent(credentials as IDataObject);
 
     // Process each input item
     for (let i = 0; i < items.length; i++) {
@@ -343,15 +410,14 @@ export class Atproto implements INodeType {
               rkeyMode === 'custom'
                 ? (this.getNodeParameter('rkey', i) as string)
                 : generateTid();
-            const recordData = JSON.parse(
-              this.getNodeParameter('recordData', i) as string,
-            ) as Record<string, unknown>;
+            const recordData = this.getNodeParameter('recordData', i);
+            const record = buildRecordFromNodeParams(recordData, collection);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
             const res = await createRecord(agent, {
               collection,
               rkey,
-              record: recordData,
+              record,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;
@@ -373,15 +439,14 @@ export class Atproto implements INodeType {
 
           case 'putRecord': {
             const rkey = this.getNodeParameter('rkey', i) as string;
-            const recordData = JSON.parse(
-              this.getNodeParameter('recordData', i) as string,
-            ) as Record<string, unknown>;
+            const recordData = this.getNodeParameter('recordData', i);
+            const record = buildRecordFromNodeParams(recordData, collection);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
             const res = await putRecord(agent, {
               collection,
               rkey,
-              record: recordData,
+              record,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;
@@ -449,4 +514,58 @@ export class Atproto implements INodeType {
 
     return [returnData];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Record building helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a record object from node parameters.
+ *
+ * Phase 2: When `recordData` is a `resourceMapper` value (object with
+ * `mappingMode` and `value`), read the mapped fields and construct the
+ * record. When it's a raw JSON string (Phase 1 fallback), parse it.
+ *
+ * In both cases, `$type` and `createdAt` are handled by the operations
+ * layer (auto-injected in `operations.ts`).
+ */
+function buildRecordFromNodeParams(
+  recordData: unknown,
+  collection: string,
+): Record<string, unknown> {
+  // Phase 1 fallback: raw JSON string
+  if (typeof recordData === 'string') {
+    try {
+      return JSON.parse(recordData) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  // Phase 2: resourceMapper value
+  if (
+    recordData &&
+    typeof recordData === 'object' &&
+    'mappingMode' in recordData &&
+    'value' in recordData
+  ) {
+    const rm = recordData as {
+      mappingMode: string;
+      value: Record<string, unknown> | null;
+    };
+
+    if (rm.mappingMode === 'defineBelow' && rm.value) {
+      return rm.value;
+    }
+
+    if (rm.mappingMode === 'autoMapInputData' && rm.value) {
+      return rm.value;
+    }
+
+    return {};
+  }
+
+  // Fallback: return as-is
+  return recordData as Record<string, unknown>;
 }
