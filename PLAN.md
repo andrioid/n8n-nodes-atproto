@@ -7,10 +7,11 @@
 | Phase 0 — Scaffolding | ✅ Done | n/a | `d9c7329` |
 | Phase 1 — Generic CRUD | ✅ Done | 35 | `d9c7329` |
 | Phase 2 — Dynamic field mapping | ✅ Done | 57 | `31140d5`, `34a5e16` (review fixes) |
-| Phase 3 — Blob support | ✅ Done | 11 | — |
-| Distribution | ⏳ Not started | — | — |
+| Phase 3 — Blob support | ✅ Done | 11 | `8f468d7` |
+| Distribution — Bundling | ✅ Done | — | `00a4933`, `976ee7e` |
+| Distribution — Publish | ⏳ Not started | — | — |
 
-**Current totals:** 103 tests passing, lint clean, build clean.
+**Current totals:** 103 tests passing, lint clean, build clean (Vite, ~100ms).
 
 ## Decisions Log
 
@@ -30,48 +31,53 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 | 10 | `@atproto/api` XRPC validation rejects `record` type in `resolveLexicon` response | Call the typed client anyway; on `XRPCInvalidResponseError`, extract `responseBody.schema` and parse it. Future: replace with raw `fetch()` if upstream issue persists | The validation throws on a valid response. Catching the error and using its `responseBody` is pragmatic; the response data is still well-formed |
 | 11 | Dotted-key un-flattening | `buildRecordFromNodeParams` runs `unflattenDottedKeys` over the resourceMapper value before sending to the PDS. Empty values are dropped | Refs and inline objects flatten to keys like `reply.root`, `reply.parent` for the UI; the PDS expects nested objects |
 | 12 | Ref sub-field required propagation | `resolveRefProperties` returns `{ properties, required }`. A flattened sub-field is required iff the parent ref is required AND the resolved schema lists it as required | Otherwise optional refs would mark their sub-fields as required, confusing the user |
+| 13 | Zero runtime dependencies | Bundle `@atproto/api` and `@atproto/lexicon-resolver` into `dist/` with Vite. Published package has empty `dependencies`. Only `n8n-workflow` is externalized. | n8n verification guidelines require no runtime deps. Also fixes `n8n-node dev` crash — the dev symlink exposes `node_modules` and n8n’s glob picks up `uint8arrays/*.node.js` files |
+| 14 | `uint8arrays` `.node.js` files | `postinstall` script patches `uint8arrays`’ conditional exports to redirect `"node"` → `"import"` targets, then deletes the `.node.js` files | These platform-specific files (Buffer vs Uint8Array) crash n8n’s node loader during dev. The ESM fallbacks are functionally identical |
 
 ## Tooling
 
 | Purpose | Tool | Notes |
 |---------|------|-------|
-| Dev server | `n8n-node dev` | Hot reload. Edit → save → auto-rebuild → refresh browser. |
-| Build | `n8n-node build` | Handles TypeScript + icon copying. No custom scripts. |
-| Lint | `oxlint` + `@n8n/eslint-plugin-community-nodes` via jsPlugins | Rust-native speed. jsPlugins is alpha (99.5% pass rate on popular plugins) — if it fails with this plugin, fall back to eslint for n8n rules only. |
+| Dev server | `n8n-node dev` | Hot reload. Symlinks project into n8n’s custom nodes dir. |
+| Build | `vite build` (library mode) | Bundles all deps into `dist/`. CJS output, ~100ms. Vite is already installed via vitest — no extra dependency. |
+| Lint | `oxlint` | Rust-native speed. |
 | Format | `oxfmt` | Separate npm package (not bundled with oxlint). Config file: `.oxfmtrc.json`. |
 | Test | `vitest` + `msw` | ESM-native. Mock XRPC server. |
 | Publish | `n8n-node release` | Builds, lints, tags, publishes to npm with provenance. |
 
 ## Dependencies
 
-### Runtime (2 packages)
+### Runtime: none
+
+n8n verification guidelines require zero runtime dependencies. All packages are bundled into `dist/` by Vite at build time.
+
+### Externalized (provided by n8n)
 
 ```
-@atproto/api              — CredentialSession, Agent, XRPC, DID resolution
-                            deps: @atproto/lexicon, @atproto/xrpc, @atproto/syntax, @atproto/common-web, multiformats, zod
-@atproto/lexicon-resolver — DNS-based lexicon resolution (fallback for Phase 2)
-                            deps: @atproto/lex, @atproto/lex-document, @atproto/repo, @atproto/syntax, @atproto/identity, @atproto-labs/fetch-node
+n8n-workflow           — node types, error classes (externalized in vite.config.build.ts)
 ```
 
-They share only `@atproto/syntax`. The lexicon-resolver brings its own substantial dep tree — but it's only needed at editor-time (Phase 2 `resourceMapperMethod`), not on every execution.
-
-### Peer (1 package)
+### Dev / bundled (all in devDependencies)
 
 ```
-n8n-workflow           — provided by n8n at runtime
+@atproto/api              — CredentialSession, Agent, XRPC (bundled into dist)
+@atproto/lexicon-resolver — DNS-based lexicon fallback (bundled, lazy-loaded via import())
+typescript                — type-checking (tsc --watch in n8n-node dev)
+@n8n/node-cli             — dev server + npm provenance
+vitest                    — test runner (also provides vite for building)
+msw                       — mock XRPC server
+oxlint                    — lint
+oxfmt                     — format
 ```
 
-### Dev (6 packages)
+### Bundle size
 
-```
-typescript             — compiler
-@n8n/node-cli          — build + npm provenance
-oxlint                 — lint (jsPlugins alpha for ESLint plugin compat)
-oxfmt                  — format (separate package, Prettier-compatible)
-@n8n/eslint-plugin-community-nodes — n8n rules loaded via oxlint jsPlugins (fallback: eslint)
-vitest                 — test runner
-msw                    — mock XRPC server
-```
+| Chunk | Raw | Gzipped | Notes |
+|-------|-----|---------|-------|
+| `Atproto.node.js` | 883 KB | 123 KB | Main entry. 91% is `@atproto/api` (barrel exports, not tree-shakeable) |
+| `_chunks/dist.js` | 213 KB | 49 KB | Shared: zod, multiformats, @atproto/syntax |
+| `_chunks/dist2.js` | 1,183 KB | 287 KB | **Lazy-loaded** via `import()` — only when DNS lexicon fallback fires. Contains undici (660 KB) |
+| **Eager total** | **1,096 KB** | **172 KB** | What loads at runtime |
 
 ---
 
@@ -488,13 +494,15 @@ When a field has type `blob` in the lexicon:
 
 Before publishing:
 
-- [ ] `npm run lint` passes (oxlint + n8n community rules)
-- [ ] `npm test` passes (all vitest suites)
-- [ ] `npm run build` produces clean `dist/`
+- [x] `npm run lint` passes
+- [x] `npm test` passes (103 tests)
+- [x] `npm run build` produces clean `dist/` (Vite, ~100ms)
+- [x] Zero runtime `dependencies` in package.json
+- [x] Dev server starts without crashes (`npm run dev`)
 - [ ] Manual test: full CRUD lifecycle against Bluesky
-- [ ] Manual test: field mapping with `app.bsky.feed.post` (Phase 2)
+- [ ] Manual test: field mapping with `app.bsky.feed.post`
 - [ ] README has install instructions for community nodes panel
 - [ ] `package.json` has correct `repository.url`, `author`, `description`
 - [ ] Icon displays correctly in n8n node palette
-- [ ] Publish with `npm publish --provenance` (requires `@n8n/node-cli` ≥0.32.0)
+- [ ] Publish with `npm publish --provenance` via GitHub Actions
 - [ ] Submit for n8n community node verification

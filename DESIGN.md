@@ -233,19 +233,23 @@ n8n-nodes-atproto/
 │           ├── operations.ts           # CRUD operation logic
 │           ├── lexicon.ts              # Resolve + parse lexicon schemas
 │           ├── fieldMapping.ts         # Lexicon schema → ResourceMapperField[]
+│           ├── blob.ts                 # Blob upload for binary fields
 │           ├── tid.ts                  # TID generation
 │           └── atproto.svg             # Node icon
 ├── tests/
+├── scripts/
+│   └── patch-node-js-exports.mjs       # postinstall: fix uint8arrays for dev
 ├── package.json
 ├── tsconfig.json
-├── oxlint.json
+├── vite.config.build.ts                # Vite library mode build config
 ├── vitest.config.ts
 ├── README.md
+├── CONTRIBUTING.md
 ├── DESIGN.md
-└── TODO.md
+└── PLAN.md
 ```
 
-Files live under `src/` so `n8n-node dev` can watch and hot-reload them. The `@n8n/node-cli` handles building, icon copying, and linking to n8n.
+Files live under `src/`. `n8n-node dev` watches and hot-reloads. `vite build` bundles everything into `dist/` with zero runtime dependencies.
 
 ## Phasing
 
