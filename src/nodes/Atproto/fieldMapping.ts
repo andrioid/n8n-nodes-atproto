@@ -11,7 +11,7 @@
 
 import type { ResourceMapperField } from 'n8n-workflow';
 import type { Agent } from '@atproto/api';
-import type { LexiconProperty, LexiconSchema } from './lexicon';
+import type { LexiconProperty, LexiconSchema, ResolvedRef } from './lexicon';
 import { resolveLexiconSchema, resolveRefProperties } from './lexicon';
 
 // ---------------------------------------------------------------------------
@@ -66,6 +66,65 @@ function lexiconTypeToFieldType(prop: LexiconProperty): string {
 }
 
 // ---------------------------------------------------------------------------
+// Ref helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a resolvable ref target from a property.
+ *
+ * Returns the ref string for `ref` types and single-ref `union` types.
+ * Single-ref unions are a common AT Protocol pattern for typed sub-objects
+ * (e.g. `{ type: "union", refs: ["site.standard.theme.color#rgb"] }`).
+ */
+export function getResolvableRef(prop: LexiconProperty): string | null {
+  if (prop.type === 'ref' && prop.ref) return prop.ref;
+  if (prop.type === 'union' && prop.refs?.length === 1) return prop.refs[0];
+  return null;
+}
+
+/**
+ * Detect whether a resolved ref is an RGB(A) color object.
+ *
+ * Matches objects with exactly {r, g, b} or {r, g, b, a} integer properties
+ * — the standard AT Protocol pattern for color values
+ * (e.g. `site.standard.theme.color#rgb`).
+ */
+function isRgbColorDef(resolved: ResolvedRef): boolean {
+  const keys = Object.keys(resolved.properties);
+  const hasRGB = ['r', 'g', 'b'].every(
+    (k) => resolved.properties[k]?.type === 'integer',
+  );
+  if (!hasRGB) return false;
+  return (
+    keys.length === 3 ||
+    (keys.length === 4 && resolved.properties['a']?.type === 'integer')
+  );
+}
+
+/**
+ * Create a single hex-color string field instead of 3–4 separate number
+ * fields for RGB(A) color refs.
+ */
+function makeColorField(
+  name: string,
+  prop: LexiconProperty,
+  required: boolean,
+): ResourceMapperField {
+  const desc = prop.description?.replace(/\.\s*$/, '');
+  const displayName = desc
+    ? `${name} (${desc} — hex e.g. #3B82F6)`
+    : `${name} (hex color e.g. #3B82F6)`;
+  return {
+    id: name,
+    displayName,
+    required,
+    defaultMatch: false,
+    display: true,
+    type: 'string',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
 
@@ -117,15 +176,21 @@ async function propToFields(
   agent: Agent | null,
   depth: number,
 ): Promise<ResourceMapperField[]> {
-  // --- ref types: attempt recursive flattening ---
-  if (prop.type === 'ref' && prop.ref && depth < MAX_REF_DEPTH) {
+  // --- ref / single-ref union types: attempt recursive flattening ---
+  const resolveTarget = getResolvableRef(prop);
+  if (resolveTarget && depth < MAX_REF_DEPTH) {
     const resolved = await resolveRefProperties(
-      prop.ref,
+      resolveTarget,
       parentSchema,
       (nsid: string) => resolveLexiconSchema(agent, nsid),
     );
 
     if (resolved !== null && Object.keys(resolved.properties).length > 0) {
+      // RGB color shortcut — single hex string field instead of r/g/b numbers
+      if (isRgbColorDef(resolved)) {
+        return [makeColorField(name, prop, required)];
+      }
+
       // Flatten the resolved properties with a dotted prefix.
       // A sub-field is required iff the parent ref is required AND the
       // resolved schema lists it as required.
@@ -141,10 +206,13 @@ async function propToFields(
     }
 
     // Resolution failed — fall back to object field
+    const fallbackDisplay = prop.description
+      ? `${name} (${prop.description})`
+      : name;
     return [
       {
         id: name,
-        displayName: name,
+        displayName: fallbackDisplay,
         required,
         defaultMatch: false,
         display: true,
@@ -153,12 +221,15 @@ async function propToFields(
     ];
   }
 
-  // --- union types: always object (too complex for flattening) ---
+  // --- multi-ref union types: always object (too complex for flattening) ---
   if (prop.type === 'union') {
+    const displayName = prop.description
+      ? `${name} (${prop.description})`
+      : name;
     return [
       {
         id: name,
-        displayName: name,
+        displayName,
         required,
         defaultMatch: false,
         display: true,
@@ -260,14 +331,21 @@ async function flattenRefProperties(
     const dotted = `${prefix}.${name}`;
     const isRequired = parentRequired && schemaRequired.includes(name);
 
-    // Recursively handle nested refs
-    if (prop.type === 'ref' && prop.ref && depth < MAX_REF_DEPTH) {
+    // Recursively handle nested refs and single-ref unions
+    const nestedRef = getResolvableRef(prop);
+    if (nestedRef && depth < MAX_REF_DEPTH) {
       const resolved = await resolveRefProperties(
-        prop.ref,
+        nestedRef,
         parentSchema,
         (nsid: string) => resolveLexiconSchema(agent, nsid),
       );
       if (resolved !== null && Object.keys(resolved.properties).length > 0) {
+        // RGB color shortcut — single hex string field instead of r/g/b numbers
+        if (isRgbColorDef(resolved)) {
+          fields.push(makeColorField(dotted, prop, isRequired));
+          continue;
+        }
+
         const nested = await flattenRefProperties(
           dotted,
           resolved.properties,
@@ -284,9 +362,12 @@ async function flattenRefProperties(
 
     // For simple types or when refs can't be resolved further
     const fieldType = lexiconTypeToFieldType(prop);
+    const displayName = prop.description
+      ? `${dotted} (${prop.description})`
+      : dotted;
     fields.push({
       id: dotted,
-      displayName: dotted,
+      displayName,
       required: isRequired,
       defaultMatch: false,
       display: true,

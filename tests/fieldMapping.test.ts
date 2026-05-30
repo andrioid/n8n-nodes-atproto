@@ -21,6 +21,9 @@ import {
   PRIMITIVE_ONLY,
   INLINE_OBJECT,
   DEEPLY_NESTED,
+  TYPE_ONLY_COLOR,
+  SINGLE_REF_UNION,
+  PUBLICATION_WITH_THEME,
 } from './mockLexicons';
 
 let agent: Agent | null;
@@ -230,5 +233,176 @@ describe('empty schema handling', () => {
     // We test this by ensuring the function handles missing schema gracefully
     const schema = await resolveLexiconSchema(null, 'io.example.unknown');
     expect(schema).toBeNull();
+  });
+});
+
+describe('single-ref union resolution (F1)', () => {
+  it('collapses RGB color refs into single hex string fields', async () => {
+    // Mock resolves: io.example.theme returns the theme lexicon,
+    // io.example.color returns the type-only color lexicon.
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    expect(schema).not.toBeNull();
+
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    // RGB colors should be collapsed into single hex string fields
+    const bg = fields.find((f) => f.id === 'background')!;
+    expect(bg).toBeDefined();
+    expect(bg.type).toBe('string');
+    expect(bg.required).toBe(true);
+    expect(bg.displayName).toContain('#3B82F6');
+    expect(bg.displayName).toContain('Color used for content background');
+
+    const accent = fields.find((f) => f.id === 'accent')!;
+    expect(accent).toBeDefined();
+    expect(accent.type).toBe('string');
+    expect(accent.displayName).toContain('Color used for links');
+
+    // Should NOT have individual r/g/b sub-fields
+    expect(fields.find((f) => f.id === 'background.r')).toBeUndefined();
+    expect(fields.find((f) => f.id === 'accent.r')).toBeUndefined();
+  });
+
+  it('resolves two levels deep: ref → record → single-ref union → hex color', async () => {
+    // io.example.publication → theme (ref) → io.example.theme (record)
+    //   → background (single-ref union) → io.example.color#rgb (hex collapse)
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.publication') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/a', schema: PUBLICATION_WITH_THEME };
+      }
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/b', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_3, uri: 'at://did:plc:fake/x/c', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.publication');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    // name should be a simple string field
+    const nameField = fields.find((f) => f.id === 'name')!;
+    expect(nameField.type).toBe('string');
+    expect(nameField.displayName).toContain('Name of the publication');
+
+    // theme.background / theme.accent should be hex string fields (not r/g/b)
+    const themeBg = fields.find((f) => f.id === 'theme.background')!;
+    expect(themeBg).toBeDefined();
+    expect(themeBg.type).toBe('string');
+    expect(themeBg.displayName).toContain('hex');
+
+    const themeAccent = fields.find((f) => f.id === 'theme.accent')!;
+    expect(themeAccent).toBeDefined();
+    expect(themeAccent.type).toBe('string');
+
+    // Multi-ref union should remain as object (not resolved)
+    const labelsField = fields.find((f) => f.id === 'labels')!;
+    expect(labelsField.type).toBe('object');
+  });
+
+  it('keeps multi-ref unions as opaque object fields', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.publication') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/a', schema: PUBLICATION_WITH_THEME };
+      }
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/b', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_3, uri: 'at://did:plc:fake/x/c', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.publication');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const labels = fields.find((f) => f.id === 'labels')!;
+    expect(labels).toBeDefined();
+    expect(labels.type).toBe('object');
+    expect(labels.displayName).toContain('Multi-ref union');
+  });
+});
+
+describe('type-only lexicon resolution (F2)', () => {
+  it('resolves a type-only lexicon and exposes its defs for fragment lookup', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.color') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.color');
+    expect(schema).not.toBeNull();
+    // No record properties (type-only lexicon)
+    expect(Object.keys(schema!.properties)).toHaveLength(0);
+    // rawDefs available for fragment resolution
+    expect(schema!.rawDefs).toBeDefined();
+    expect(schema!.rawDefs!['rgb']).toBeDefined();
+    expect(schema!.rawDefs!['rgba']).toBeDefined();
+  });
+});
+
+describe('description propagation (F3)', () => {
+  it('includes description and hex hint in color field displayName', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const bg = fields.find((f) => f.id === 'background')!;
+    // Should have both the description and hex hint
+    expect(bg.displayName).toContain('Color used for content background');
+    expect(bg.displayName).toContain('#3B82F6');
+  });
+
+  it('shows description on fallback object fields when resolution fails', async () => {
+    // Only provide the theme lexicon — color resolution will fail
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    // Color resolution fails → fallback object fields with descriptions
+    const bg = fields.find((f) => f.id === 'background')!;
+    expect(bg).toBeDefined();
+    expect(bg.type).toBe('object');
+    expect(bg.displayName).toContain('Color used for content background');
+
+    const accent = fields.find((f) => f.id === 'accent')!;
+    expect(accent).toBeDefined();
+    expect(accent.displayName).toContain('Color used for links');
   });
 });

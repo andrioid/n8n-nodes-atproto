@@ -21,6 +21,7 @@ import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
 import { lexiconToResourceMapperFields } from './fieldMapping';
 import { applyBlobUploads } from './blob';
+import { injectNestedTypes } from './typeInjection';
 
 // ---------------------------------------------------------------------------
 // Error handling
@@ -427,10 +428,17 @@ export class Atproto implements INodeType {
               this,
             );
 
+            // Phase 4: inject $type on nested ref/union objects
+            const recordWithTypes = await injectNestedTypes(
+              recordWithBlobs,
+              schema,
+              agent,
+            );
+
             const res = await createRecord(agent, {
               collection,
               rkey,
-              record: recordWithBlobs,
+              record: recordWithTypes,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;
@@ -466,10 +474,17 @@ export class Atproto implements INodeType {
               this,
             );
 
+            // Phase 4: inject $type on nested ref/union objects
+            const recordWithTypes = await injectNestedTypes(
+              recordWithBlobs,
+              schema,
+              agent,
+            );
+
             const res = await putRecord(agent, {
               collection,
               rkey,
-              record: recordWithBlobs,
+              record: recordWithTypes,
               ...(swapCommit ? { swapCommit } : {}),
             });
             result = res as unknown as IDataObject;

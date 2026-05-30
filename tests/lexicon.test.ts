@@ -88,7 +88,7 @@ describe('resolveLexiconSchema — PDS endpoint', () => {
     expect(schema).toBeNull();
   });
 
-  it('returns null for query/procedure lexicons (not record)', async () => {
+  it('returns defs-only schema for query/procedure lexicons (not record)', async () => {
     // Override the resolveLexicon mock to return a query-type lexicon
     setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
       cid: CID_2,
@@ -97,7 +97,12 @@ describe('resolveLexiconSchema — PDS endpoint', () => {
     }));
 
     const schema = await resolveLexiconSchema(agent, 'com.atproto.repo.getRecord');
-    expect(schema).toBeNull();
+    // Non-record lexicons return a defs-only schema (empty properties)
+    // so their defs remain available for cross-document fragment resolution.
+    expect(schema).not.toBeNull();
+    expect(schema!.properties).toEqual({});
+    expect(schema!.required).toEqual([]);
+    expect(schema!.rawDefs).toBeDefined();
   });
 
   it('resolves with nullable fields', async () => {

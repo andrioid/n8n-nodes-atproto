@@ -171,9 +171,19 @@ function parseRawLexiconDocument(
   if (!defs) return null;
 
   const mainDef = defs?.main as Record<string, unknown> | undefined;
-  if (!mainDef) return null;
+  if (mainDef) {
+    const schema = extractRecordSchema(mainDef, defs, nsid);
+    if (schema) return schema;
+  }
 
-  return extractRecordSchema(mainDef, defs, nsid);
+  // Type-only lexicon (no main record) — still useful for cross-document
+  // fragment resolution (e.g. site.standard.theme.color#rgb).
+  return {
+    properties: {},
+    required: [],
+    rawDefs: defs,
+    nsid,
+  };
 }
 
 /**
@@ -189,9 +199,19 @@ function parseLexiconDocumentRecord(
   if (!defs) return null;
 
   const mainDef = defs?.main as Record<string, unknown> | undefined;
-  if (!mainDef) return null;
+  if (mainDef) {
+    const schema = extractRecordSchema(mainDef, defs, nsid);
+    if (schema) return schema;
+  }
 
-  return extractRecordSchema(mainDef, defs, nsid);
+  // Type-only lexicon (no main record) — still useful for cross-document
+  // fragment resolution (e.g. site.standard.theme.color#rgb).
+  return {
+    properties: {},
+    required: [],
+    rawDefs: defs,
+    nsid,
+  };
 }
 
 /**

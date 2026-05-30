@@ -12,11 +12,18 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
 import { createRecord, putRecord } from '../src/nodes/Atproto/operations';
+import { injectNestedTypes } from '../src/nodes/Atproto/typeInjection';
+import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
+import { SINGLE_REF_UNION, TYPE_ONLY_COLOR, PUBLICATION_WITH_THEME } from './mockLexicons';
 import {
   server,
   PDS_URL,
+  CID_1,
+  CID_2,
+  CID_3,
   clearInterceptedRequests,
   clearMockResponses,
+  setMockResponse,
   interceptedRequests,
 } from './setup';
 
@@ -39,6 +46,7 @@ afterAll(() => {
 beforeEach(() => {
   clearInterceptedRequests();
   clearMockResponses();
+  clearLexiconCache();
 });
 
 function getLastRequestBody(method: string): Record<string, unknown> {
@@ -148,5 +156,139 @@ describe('createdAt auto-injection', () => {
     const record = body?.record as Record<string, unknown>;
     expect(record['createdAt']).toBeDefined();
     expect(typeof record['createdAt']).toBe('string');
+  });
+});
+
+describe('hex color expansion (F4)', () => {
+  it('expands #RRGGBB strings into { $type, r, g, b } objects', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const record = {
+      background: '#3B82F6',
+      accent: '#FF0000',
+    };
+
+    const result = await injectNestedTypes(record, schema, agent!);
+
+    expect(result.background).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 59,
+      g: 130,
+      b: 246,
+    });
+    expect(result.accent).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 255,
+      g: 0,
+      b: 0,
+    });
+  });
+
+  it('expands shorthand #RGB into { $type, r, g, b }', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const result = await injectNestedTypes(
+      { background: '#FFF', accent: '#000' },
+      schema,
+      agent!,
+    );
+
+    expect(result.background).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 255, g: 255, b: 255,
+    });
+    expect(result.accent).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 0, g: 0, b: 0,
+    });
+  });
+
+  it('leaves non-hex strings unchanged', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const result = await injectNestedTypes(
+      { background: 'not-a-color', accent: '#3B82F6' },
+      schema,
+      agent!,
+    );
+
+    // Non-hex string passes through unchanged
+    expect(result.background).toBe('not-a-color');
+    // Valid hex is expanded
+    expect(result.accent).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 59, g: 130, b: 246,
+    });
+  });
+
+  it('injects $type on nested refs AND expands hex colors two levels deep', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
+      const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.publication') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/a', schema: PUBLICATION_WITH_THEME };
+      }
+      if (nsid === 'io.example.theme') {
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/b', schema: SINGLE_REF_UNION };
+      }
+      if (nsid === 'io.example.color') {
+        return { cid: CID_3, uri: 'at://did:plc:fake/x/c', schema: TYPE_ONLY_COLOR };
+      }
+      throw Object.assign(new Error('not found'), { status: 404 });
+    });
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.publication');
+    const record = {
+      name: 'My Blog',
+      theme: {
+        background: '#FFFFFF',
+        accent: '#3B82F6',
+      },
+    };
+
+    const result = await injectNestedTypes(record, schema, agent!);
+
+    // Top-level ref gets $type
+    const theme = result.theme as Record<string, unknown>;
+    expect(theme['$type']).toBe('io.example.theme');
+
+    // Nested hex colors get expanded with $type
+    expect(theme.background).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 255, g: 255, b: 255,
+    });
+    expect(theme.accent).toEqual({
+      '$type': 'io.example.color#rgb',
+      r: 59, g: 130, b: 246,
+    });
   });
 });

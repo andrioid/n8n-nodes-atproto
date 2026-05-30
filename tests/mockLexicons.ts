@@ -149,6 +149,109 @@ export const INLINE_OBJECT = {
   },
 };
 
+/**
+ * Type-only lexicon (no main record) — defines reusable types only.
+ * Modeled on `site.standard.theme.color`.
+ */
+export const TYPE_ONLY_COLOR = {
+  $type: 'com.atproto.lexicon.schema',
+  lexicon: 1,
+  id: 'io.example.color',
+  defs: {
+    rgb: {
+      type: 'object',
+      required: ['r', 'g', 'b'],
+      properties: {
+        r: { type: 'integer', minimum: 0, maximum: 255 },
+        g: { type: 'integer', minimum: 0, maximum: 255 },
+        b: { type: 'integer', minimum: 0, maximum: 255 },
+      },
+    },
+    rgba: {
+      type: 'object',
+      required: ['r', 'g', 'b', 'a'],
+      properties: {
+        r: { type: 'integer', minimum: 0, maximum: 255 },
+        g: { type: 'integer', minimum: 0, maximum: 255 },
+        b: { type: 'integer', minimum: 0, maximum: 255 },
+        a: { type: 'integer', minimum: 0, maximum: 100 },
+      },
+    },
+  },
+};
+
+/**
+ * Record lexicon with single-ref union properties.
+ * Modeled on `site.standard.theme.basic` — each color property is a
+ * single-ref union pointing to `io.example.color#rgb`.
+ */
+export const SINGLE_REF_UNION = {
+  $type: 'com.atproto.lexicon.schema',
+  lexicon: 1,
+  id: 'io.example.theme',
+  defs: {
+    main: {
+      type: 'record',
+      key: 'tid',
+      record: {
+        type: 'object',
+        properties: {
+          background: {
+            type: 'union',
+            refs: ['io.example.color#rgb'],
+            description: 'Color used for content background.',
+          },
+          accent: {
+            type: 'union',
+            refs: ['io.example.color#rgb'],
+            description: 'Color used for links.',
+          },
+        },
+        required: ['background', 'accent'],
+      },
+    },
+  },
+};
+
+/**
+ * Record lexicon that references a single-ref union theme via ref.
+ * Modeled on `site.standard.publication` → basicTheme.
+ */
+export const PUBLICATION_WITH_THEME = {
+  $type: 'com.atproto.lexicon.schema',
+  lexicon: 1,
+  id: 'io.example.publication',
+  defs: {
+    main: {
+      type: 'record',
+      key: 'tid',
+      record: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Name of the publication.',
+          },
+          theme: {
+            type: 'ref',
+            ref: 'io.example.theme',
+            description: 'Theme for the publication.',
+          },
+          labels: {
+            type: 'union',
+            refs: [
+              'io.example.label#a',
+              'io.example.label#b',
+            ],
+            description: 'Multi-ref union (should stay as object).',
+          },
+        },
+        required: ['name'],
+      },
+    },
+  },
+};
+
 /** A lexicon that demonstrates a deeply nested ref chain. */
 export const DEEPLY_NESTED = {
   $type: 'com.atproto.lexicon.schema',
