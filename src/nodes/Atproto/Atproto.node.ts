@@ -89,6 +89,30 @@ async function createAgent(credentials: IDataObject): Promise<Agent> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the record key for get/put/delete operations.
+ *
+ * When the user leaves rkey empty, attempts to resolve the lexicon
+ * schema and use the literal key (e.g. `self` for `app.bsky.actor.profile`).
+ * Throws if the key can’t be determined.
+ */
+async function resolveRkey(
+  rkey: string,
+  collection: string,
+  agent: Agent,
+): Promise<string> {
+  if (rkey) return rkey;
+
+  const schema = await resolveLexiconSchema(agent, collection);
+  if (schema?.key === 'literal' && schema.literalKey) {
+    return schema.literalKey;
+  }
+
+  throw new Error(
+    `Record key is required for ${collection}. The lexicon does not declare a fixed key.`,
+  );
+}
+
+/**
  * Extract the NSID string from a collection parameter.
  *
  * Handles both the plain string (legacy / expressions) and the
@@ -246,9 +270,10 @@ export class Atproto implements INodeType {
         displayName: 'Record Key (rkey)',
         name: 'rkey',
         type: 'string',
-        required: true,
+        required: false,
         placeholder: '3jzfcijpj2z2a',
-        description: 'The record key (rkey) for the record',
+        description:
+          'The record key. Leave empty for collections that use a fixed key (e.g. app.bsky.actor.profile always uses "self").',
         displayOptions: {
           show: {
             operation: ['getRecord', 'putRecord', 'deleteRecord'],
@@ -538,7 +563,11 @@ export class Atproto implements INodeType {
           }
 
           case 'getRecord': {
-            const rkey = this.getNodeParameter('rkey', i) as string;
+            const rkey = await resolveRkey(
+              this.getNodeParameter('rkey', i) as string,
+              collection,
+              agent,
+            );
             const repo = this.getNodeParameter('repo', i) as string;
 
             const res = await getRecord(agent, {
@@ -551,7 +580,11 @@ export class Atproto implements INodeType {
           }
 
           case 'putRecord': {
-            const rkey = this.getNodeParameter('rkey', i) as string;
+            const rkey = await resolveRkey(
+              this.getNodeParameter('rkey', i) as string,
+              collection,
+              agent,
+            );
             const recordData = this.getNodeParameter('recordData', i);
             const record = buildRecordFromNodeParams(recordData);
             const putOpts = this.getNodeParameter('options', i, {}) as IDataObject;
@@ -585,7 +618,11 @@ export class Atproto implements INodeType {
           }
 
           case 'deleteRecord': {
-            const rkey = this.getNodeParameter('rkey', i) as string;
+            const rkey = await resolveRkey(
+              this.getNodeParameter('rkey', i) as string,
+              collection,
+              agent,
+            );
             const delOpts = this.getNodeParameter('options', i, {}) as IDataObject;
             const swapCommit = (delOpts.swapCommit as string) ?? '';
 
