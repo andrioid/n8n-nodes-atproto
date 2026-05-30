@@ -8,6 +8,7 @@
   "license": "MIT",
   "main": "dist/nodes/Atproto/Atproto.node.js",
   "scripts": {
+    "postinstall": "node scripts/patch-node-js-exports.mjs",
     "dev": "n8n-node dev",
     "build": "vite build --config vite.config.build.ts",
     "lint": "oxlint src/",
