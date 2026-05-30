@@ -286,8 +286,13 @@ async function propToFields(
     type: fieldType as ResourceMapperField['type'],
   };
 
-  // Attach optional description
-  if (prop.description) {
+  // Attach optional description (with blob hint)
+  if (prop.type === 'blob') {
+    const desc = prop.description?.replace(/\.\s*$/, '');
+    field.displayName = desc
+      ? `${name} (${desc} — binary property name from input)`
+      : `${name} (binary property name from input)`;
+  } else if (prop.description) {
     field.displayName = `${name} (${prop.description})`;
   }
 

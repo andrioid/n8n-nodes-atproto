@@ -3,6 +3,7 @@ import type {
   IExecuteFunctions,
   ILoadOptionsFunctions,
   INodeExecutionData,
+  INodeListSearchResult,
   INodeType,
   INodeTypeDescription,
   ResourceMapperFields,
@@ -84,6 +85,24 @@ async function createAgent(credentials: IDataObject): Promise<Agent> {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the NSID string from a collection parameter.
+ *
+ * Handles both the plain string (legacy / expressions) and the
+ * resourceLocator object `{ mode, value }` returned by the RLC widget.
+ */
+function extractCollectionNsid(param: unknown): string {
+  if (typeof param === 'string') return param;
+  if (param && typeof param === 'object' && 'value' in param) {
+    return String((param as { value: unknown }).value ?? '');
+  }
+  return '';
+}
+
+// ---------------------------------------------------------------------------
 // Node
 // ---------------------------------------------------------------------------
 
@@ -94,6 +113,7 @@ export class Atproto implements INodeType {
     icon: 'file:atproto.svg',
     group: ['transform'],
     version: 1,
+    subtitle: '={{ $parameter["operation"] }}',
     description: 'CRUD records in any AT Protocol collection',
     defaults: {
       name: 'AT Protocol',
@@ -151,15 +171,15 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Collection NSID
+      // Collection (resourceLocator — searchable list + free text)
       // ------------------------------------------------------------------
       {
-        displayName: 'Collection (NSID)',
+        displayName: 'Collection',
         name: 'collection',
-        type: 'string',
+        type: 'resourceLocator',
         required: true,
-        placeholder: 'app.bsky.feed.post',
-        description: 'The NSID of the record collection (e.g. app.bsky.feed.post)',
+        description: 'The record collection to operate on',
+        default: { mode: 'list', value: '' },
         displayOptions: {
           show: {
             operation: [
@@ -171,7 +191,33 @@ export class Atproto implements INodeType {
             ],
           },
         },
-        default: '',
+        modes: [
+          {
+            displayName: 'From List',
+            name: 'list',
+            type: 'list',
+            placeholder: 'Select a collection…',
+            typeOptions: {
+              searchListMethod: 'searchCollections',
+              searchable: true,
+            },
+          },
+          {
+            displayName: 'By NSID',
+            name: 'nsid',
+            type: 'string',
+            placeholder: 'e.g. app.bsky.feed.post',
+            validation: [
+              {
+                type: 'regex',
+                properties: {
+                  regex: '^[a-z][a-z0-9]*(\\.[a-zA-Z][a-zA-Z0-9]*){2,}$',
+                  errorMessage: 'Must be a valid NSID (e.g. app.bsky.feed.post)',
+                },
+              },
+            ],
+          },
+        ],
       },
 
       // ------------------------------------------------------------------
@@ -278,7 +324,7 @@ export class Atproto implements INodeType {
             noFieldsError:
               'Could not resolve lexicon for this NSID. Enter record data as JSON using an expression, or check the collection NSID.',
           },
-          loadOptionsDependsOn: ['collection'],
+          loadOptionsDependsOn: ['collection.value'],
         },
         displayOptions: {
           show: {
@@ -288,22 +334,30 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Swap Commit (Put only — optional)
+      // Options (advanced / less-common fields)
       // ------------------------------------------------------------------
       {
-        displayName: 'Swap Commit (CID)',
-        name: 'swapCommit',
-        type: 'string',
-        required: false,
-        placeholder: 'bafyreia...',
-        description:
-          'Optional. Compare-and-swap with the current commit CID. The put is rejected if the current record CID does not match.',
+        displayName: 'Options',
+        name: 'options',
+        type: 'collection',
+        placeholder: 'Add Option',
+        default: {},
         displayOptions: {
           show: {
-            operation: ['putRecord', 'deleteRecord', 'createRecord'],
+            operation: ['createRecord', 'putRecord', 'deleteRecord'],
           },
         },
-        default: '',
+        options: [
+          {
+            displayName: 'Swap Commit (CID)',
+            name: 'swapCommit',
+            type: 'string',
+            default: '',
+            placeholder: 'bafyreia...',
+            description:
+              'Compare-and-swap with the current commit CID. The write is rejected if the repo head does not match.',
+          },
+        ],
       },
 
       // ------------------------------------------------------------------
@@ -351,11 +405,46 @@ export class Atproto implements INodeType {
   // Resource mapper method — called in the n8n editor to resolve fields
   // -----------------------------------------------------------------------
   methods = {
+    listSearch: {
+      searchCollections: async function (
+        this: ILoadOptionsFunctions,
+        filter?: string,
+      ): Promise<INodeListSearchResult> {
+        try {
+          const credentials = await this.getCredentials('atprotoApi');
+          const agent = await createAgent(credentials as IDataObject);
+
+          const response = await agent.com.atproto.repo.describeRepo({
+            repo: agent.did!,
+          });
+
+          let collections = (response.data as { collections?: string[] })
+            .collections ?? [];
+
+          if (filter) {
+            const q = filter.toLowerCase();
+            collections = collections.filter((c) =>
+              c.toLowerCase().includes(q),
+            );
+          }
+
+          return {
+            results: collections
+              .sort()
+              .map((nsid) => ({ name: nsid, value: nsid })),
+          };
+        } catch {
+          return { results: [] };
+        }
+      },
+    },
     resourceMapping: {
       getRecordFields: async function (
         this: ILoadOptionsFunctions,
       ): Promise<ResourceMapperFields> {
-        const nsid = this.getNodeParameter('collection') as string;
+        const nsid = extractCollectionNsid(
+          this.getNodeParameter('collection'),
+        );
 
         if (!nsid) {
           return { fields: [] };
@@ -403,7 +492,9 @@ export class Atproto implements INodeType {
     for (let i = 0; i < items.length; i++) {
       try {
         const operation = this.getNodeParameter('operation', i) as string;
-        const collection = this.getNodeParameter('collection', i) as string;
+        const collection = extractCollectionNsid(
+          this.getNodeParameter('collection', i),
+        );
 
         let result: IDataObject;
 
@@ -416,7 +507,8 @@ export class Atproto implements INodeType {
                 : generateTid();
             const recordData = this.getNodeParameter('recordData', i);
             const record = buildRecordFromNodeParams(recordData);
-            const swapCommit = this.getNodeParameter('swapCommit', i) as string;
+            const opts = this.getNodeParameter('options', i, {}) as IDataObject;
+            const swapCommit = (opts.swapCommit as string) ?? '';
 
             // Phase 3: upload blobs referenced by binary property names
             const schema = await resolveLexiconSchema(agent, collection);
@@ -462,7 +554,8 @@ export class Atproto implements INodeType {
             const rkey = this.getNodeParameter('rkey', i) as string;
             const recordData = this.getNodeParameter('recordData', i);
             const record = buildRecordFromNodeParams(recordData);
-            const swapCommit = this.getNodeParameter('swapCommit', i) as string;
+            const putOpts = this.getNodeParameter('options', i, {}) as IDataObject;
+            const swapCommit = (putOpts.swapCommit as string) ?? '';
 
             // Phase 3: upload blobs referenced by binary property names
             const schema = await resolveLexiconSchema(agent, collection);
@@ -493,7 +586,8 @@ export class Atproto implements INodeType {
 
           case 'deleteRecord': {
             const rkey = this.getNodeParameter('rkey', i) as string;
-            const swapCommit = this.getNodeParameter('swapCommit', i) as string;
+            const delOpts = this.getNodeParameter('options', i, {}) as IDataObject;
+            const swapCommit = (delOpts.swapCommit as string) ?? '';
 
             const res = await deleteRecord(agent, {
               collection,
