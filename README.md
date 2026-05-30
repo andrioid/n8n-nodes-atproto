@@ -61,6 +61,10 @@ Or install from the Community Nodes panel in n8n settings.
 | App Password | Generated at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords) |
 | Service URL | PDS endpoint (default: `https://bsky.social`) |
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, testing, and architecture overview.
+
 ## License
 
 MIT
