@@ -1,10 +1,20 @@
 # Implementation Plan
 
-Everything decided, nothing ambiguous. Pick up from any section.
+## Status
+
+| Phase | State | Tests | Commit |
+|-------|-------|-------|--------|
+| Phase 0 — Scaffolding | ✅ Done | n/a | `d9c7329` |
+| Phase 1 — Generic CRUD | ✅ Done | 35 | `d9c7329` |
+| Phase 2 — Dynamic field mapping | ✅ Done | 57 | `31140d5`, `34a5e16` (review fixes) |
+| Phase 3 — Blob support | ⏳ Not started | — | — |
+| Distribution | ⏳ Not started | — | — |
+
+**Current totals:** 92 tests passing, lint clean, build clean. **Pick up at Phase 3.**
 
 ## Decisions Log
 
-All design ambiguities were resolved. Reference these if anything feels unclear during implementation.
+All design ambiguities were resolved. Reference these if anything feels unclear during implementation. Entries 10–12 were added during Phase 2 implementation as new surprises emerged.
 
 | # | Question | Decision | Rationale |
 |---|----------|----------|-----------|
@@ -17,6 +27,9 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 | 7 | Nested `ref` types | Recursive resolution for typed sub-fields | Better UX for complex records |
 | 8 | Testing | Mocks (vitest + msw) + manual Bluesky testing | Docker integration deferred to post-Phase 1 |
 | 9 | `createdAt` | Auto-inject if schema requires it; user can override | Same pattern as `$type` but schema-conditional |
+| 10 | `@atproto/api` XRPC validation rejects `record` type in `resolveLexicon` response | Call the typed client anyway; on `XRPCInvalidResponseError`, extract `responseBody.schema` and parse it. Future: replace with raw `fetch()` if upstream issue persists | The validation throws on a valid response. Catching the error and using its `responseBody` is pragmatic; the response data is still well-formed |
+| 11 | Dotted-key un-flattening | `buildRecordFromNodeParams` runs `unflattenDottedKeys` over the resourceMapper value before sending to the PDS. Empty values are dropped | Refs and inline objects flatten to keys like `reply.root`, `reply.parent` for the UI; the PDS expects nested objects |
+| 12 | Ref sub-field required propagation | `resolveRefProperties` returns `{ properties, required }`. A flattened sub-field is required iff the parent ref is required AND the resolved schema lists it as required | Otherwise optional refs would mark their sub-fields as required, confusing the user |
 
 ## Tooling
 
@@ -89,7 +102,9 @@ n8n-node dev --external-n8n
 
 ---
 
-## Phase 0 — Project Scaffolding
+## Phase 0 — Project Scaffolding ✅
+
+> Done in `d9c7329`. Reference only; no work left here.
 
 Set up from scratch with `@n8n/node-cli` conventions. Files live under `src/` so `n8n-node dev` can watch them.
 
@@ -197,7 +212,9 @@ Use the AT Protocol logo (`@` butterfly mark) as `src/nodes/Atproto/atproto.svg`
 
 ---
 
-## Phase 1 — Credentials + Generic CRUD
+## Phase 1 — Credentials + Generic CRUD ✅
+
+> Done in `d9c7329`. 35 tests covering TID generation, all 5 CRUD operations, `$type`/`createdAt` injection, and error paths.
 
 ### 1.1 — Credential definition
 
@@ -331,7 +348,21 @@ Test against real Bluesky:
 
 ---
 
-## Phase 2 — Dynamic Field Mapping
+## Phase 2 — Dynamic Field Mapping ✅
+
+> Done in `31140d5` + `34a5e16`. 57 tests covering lexicon resolution, type mapping, recursive ref flattening, dotted-key un-flattening, and `buildRecordFromNodeParams`.
+>
+> **Deviations from the original plan, with reasons:**
+>
+> 1. **PDS path uses error-body extraction, not the typed client's normal return path.** The `@atproto/api` v0.20.6 XRPC client validates `resolveLexicon` responses against a schema whose `schema` field is a `ref` to a `record` type — the validator rejects this with `XRPCInvalidResponseError` even when the response is well-formed. We call the client anyway, catch the error, and parse `err.responseBody.schema`. See decision log entry 10.
+>
+> 2. **Added `unflattenDottedKeys` in the execute path.** Field flattening produces dotted keys like `reply.root` in the UI; the resourceMapper returns those literally, so we must un-flatten back to nested objects before the XRPC call. The first review missed this because each module looked correct in isolation — only end-to-end tracing surfaced it. See decision log entry 11.
+>
+> 3. **`resolveRefProperties` returns `{ properties, required }`** (the `ResolvedRef` type) so flattened ref sub-fields get accurate required status. See decision log entry 12.
+>
+> 4. **`@atproto/lexicon-resolver` is imported dynamically** with a `@ts-expect-error` for module resolution. The package is ESM-only and our `tsconfig` uses `module: commonjs`; dynamic `import()` works at runtime in Node 22 but TypeScript can't statically resolve the ESM exports under that config. A future tsconfig migration to `node16`/`bundler` resolution would clean this up.
+>
+> 5. **`loadOptionsDependsOn: ['collection']`, `supportAutoMap: true`, and `noFieldsError`** were added to the resourceMapper config beyond what the plan called for — the first two avoid running `getRecordFields` on every keystroke and let users auto-map; the third gives a useful hint when resolution fails.
 
 ### 2.1 — Lexicon resolution
 
@@ -423,7 +454,18 @@ When lexicon resolution fails:
 
 ---
 
-## Phase 3 — Blob Support
+## Phase 3 — Blob Support ⏳ (next)
+
+> Not started. This is the natural next step.
+>
+> **Things Phase 2 set up that Phase 3 will use:**
+> - `lexiconTypeToFieldType` already maps `blob` → `'string'`, so the field renders as a string input where the user can name a binary property.
+> - `buildRecordFromNodeParams` already drops empty values — a blob field left blank won't try to upload anything.
+> - `Atproto.node.ts` `execute()` already has access to `this.helpers.getBinaryDataBuffer()` via `IExecuteFunctions`.
+>
+> **What 3.1 needs to do:** during execute, walk the record looking for fields whose lexicon definition is `type: blob`. For each, read the binary buffer from the input item using the field's value as the binary property name, call `agent.com.atproto.repo.uploadBlob(data, { encoding: mimeType })`, and replace the field value with the returned blob reference.
+>
+> **Open question for Phase 3:** the current `buildRecordFromNodeParams` runs synchronously and doesn't have access to the agent or input item's binary data. Blob handling needs an async post-processing step that takes the built record + the resolved lexicon schema + the input item and substitutes blob references. Plan that as `applyBlobUploads(record, schema, agent, item)` and call it after `buildRecordFromNodeParams` in the create/put switch cases.
 
 ### 3.1 — Blob upload
 
