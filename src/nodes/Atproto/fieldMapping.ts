@@ -125,9 +125,19 @@ async function propToFields(
       (nsid: string) => resolveLexiconSchema(agent, nsid),
     );
 
-    if (resolved !== null && Object.keys(resolved).length > 0) {
-      // Flatten the resolved properties with a dotted prefix
-      return flattenRefProperties(name, resolved, required, parentSchema, agent, depth + 1);
+    if (resolved !== null && Object.keys(resolved.properties).length > 0) {
+      // Flatten the resolved properties with a dotted prefix.
+      // A sub-field is required iff the parent ref is required AND the
+      // resolved schema lists it as required.
+      return flattenRefProperties(
+        name,
+        resolved.properties,
+        resolved.required,
+        required,
+        parentSchema,
+        agent,
+        depth + 1,
+      );
     }
 
     // Resolution failed — fall back to object field
@@ -229,11 +239,17 @@ async function propToFields(
  * Flatten a resolved ref's properties into dotted-path fields.
  *
  * E.g. `reply.root.uri`, `reply.root.cid` instead of a single `reply` json field.
+ *
+ * A sub-field is marked `required` iff the parent ref itself is required
+ * (`parentRequired`) AND the resolved schema lists the sub-field as required
+ * (`schemaRequired`). This avoids marking optional ref's sub-fields as required
+ * just because the schema requires them when the ref is present.
  */
 async function flattenRefProperties(
   prefix: string,
   properties: Record<string, LexiconProperty>,
-  required: boolean,
+  schemaRequired: string[],
+  parentRequired: boolean,
   parentSchema: LexiconSchema,
   agent: Agent | null,
   depth: number,
@@ -242,6 +258,7 @@ async function flattenRefProperties(
 
   for (const [name, prop] of Object.entries(properties)) {
     const dotted = `${prefix}.${name}`;
+    const isRequired = parentRequired && schemaRequired.includes(name);
 
     // Recursively handle nested refs
     if (prop.type === 'ref' && prop.ref && depth < MAX_REF_DEPTH) {
@@ -250,11 +267,12 @@ async function flattenRefProperties(
         parentSchema,
         (nsid: string) => resolveLexiconSchema(agent, nsid),
       );
-      if (resolved !== null && Object.keys(resolved).length > 0) {
+      if (resolved !== null && Object.keys(resolved.properties).length > 0) {
         const nested = await flattenRefProperties(
           dotted,
-          resolved,
-          required,
+          resolved.properties,
+          resolved.required,
+          isRequired,
           parentSchema,
           agent,
           depth + 1,
@@ -269,7 +287,7 @@ async function flattenRefProperties(
     fields.push({
       id: dotted,
       displayName: dotted,
-      required,
+      required: isRequired,
       defaultMatch: false,
       display: true,
       type: (fieldType === 'json' ? 'object' : fieldType) as ResourceMapperField['type'],

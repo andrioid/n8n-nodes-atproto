@@ -177,6 +177,22 @@ describe('required fields', () => {
     const tagsField = fields.find((f) => f.id === 'tags');
     expect(tagsField!.required).toBe(false);
   });
+
+  it('does not mark ref sub-fields as required when the parent ref is optional', async () => {
+    // `reply` is optional in app.bsky.feed.post, even though replyRef
+    // declares root and parent as required. The flattened sub-fields
+    // should be optional because the user might omit `reply` entirely.
+    const schema = await resolveLexiconSchema(agent, 'app.bsky.feed.post');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const replyRoot = fields.find((f) => f.id === 'reply.root');
+    expect(replyRoot).toBeDefined();
+    expect(replyRoot!.required).toBe(false);
+
+    const replyParent = fields.find((f) => f.id === 'reply.parent');
+    expect(replyParent).toBeDefined();
+    expect(replyParent!.required).toBe(false);
+  });
 });
 
 describe('createdAt auto-default', () => {

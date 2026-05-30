@@ -3,10 +3,8 @@ import type {
   IExecuteFunctions,
   ILoadOptionsFunctions,
   INodeExecutionData,
-  INodePropertyOptions,
   INodeType,
   INodeTypeDescription,
-  ResourceMapperField,
   ResourceMapperFields,
 } from 'n8n-workflow';
 import { NodeOperationError } from 'n8n-workflow';
@@ -274,7 +272,11 @@ export class Atproto implements INodeType {
               singular: 'field',
               plural: 'fields',
             },
+            supportAutoMap: true,
+            noFieldsError:
+              'Could not resolve lexicon for this NSID. Enter record data as JSON using an expression, or check the collection NSID.',
           },
+          loadOptionsDependsOn: ['collection'],
         },
         displayOptions: {
           show: {
@@ -411,7 +413,7 @@ export class Atproto implements INodeType {
                 ? (this.getNodeParameter('rkey', i) as string)
                 : generateTid();
             const recordData = this.getNodeParameter('recordData', i);
-            const record = buildRecordFromNodeParams(recordData, collection);
+            const record = buildRecordFromNodeParams(recordData);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
             const res = await createRecord(agent, {
@@ -440,7 +442,7 @@ export class Atproto implements INodeType {
           case 'putRecord': {
             const rkey = this.getNodeParameter('rkey', i) as string;
             const recordData = this.getNodeParameter('recordData', i);
-            const record = buildRecordFromNodeParams(recordData, collection);
+            const record = buildRecordFromNodeParams(recordData);
             const swapCommit = this.getNodeParameter('swapCommit', i) as string;
 
             const res = await putRecord(agent, {
@@ -523,18 +525,23 @@ export class Atproto implements INodeType {
 /**
  * Build a record object from node parameters.
  *
- * Phase 2: When `recordData` is a `resourceMapper` value (object with
- * `mappingMode` and `value`), read the mapped fields and construct the
- * record. When it's a raw JSON string (Phase 1 fallback), parse it.
+ * Handles three input formats:
+ *  1. Raw JSON string (legacy / fallback)
+ *  2. `resourceMapper` value object `{ mappingMode, value, ... }`
+ *  3. Plain object (when called from an expression)
  *
- * In both cases, `$type` and `createdAt` are handled by the operations
- * layer (auto-injected in `operations.ts`).
+ * For resourceMapper values, dotted keys produced by ref/object flattening
+ * (e.g. `reply.root`, `reply.parent`) are un-flattened into nested objects
+ * (`{ reply: { root, parent } }`) so the resulting record matches the
+ * lexicon's expected shape.
+ *
+ * `$type` and `createdAt` are NOT handled here — they're auto-injected in
+ * `operations.ts`.
  */
-function buildRecordFromNodeParams(
+export function buildRecordFromNodeParams(
   recordData: unknown,
-  collection: string,
 ): Record<string, unknown> {
-  // Phase 1 fallback: raw JSON string
+  // Format 1: raw JSON string
   if (typeof recordData === 'string') {
     try {
       return JSON.parse(recordData) as Record<string, unknown>;
@@ -543,7 +550,7 @@ function buildRecordFromNodeParams(
     }
   }
 
-  // Phase 2: resourceMapper value
+  // Format 2: resourceMapper value
   if (
     recordData &&
     typeof recordData === 'object' &&
@@ -555,17 +562,60 @@ function buildRecordFromNodeParams(
       value: Record<string, unknown> | null;
     };
 
-    if (rm.mappingMode === 'defineBelow' && rm.value) {
-      return rm.value;
-    }
+    if (!rm.value) return {};
 
-    if (rm.mappingMode === 'autoMapInputData' && rm.value) {
-      return rm.value;
-    }
-
-    return {};
+    // Both defineBelow and autoMapInputData produce a flat key/value object.
+    // Un-flatten dotted keys back into nested objects.
+    return unflattenDottedKeys(rm.value);
   }
 
-  // Fallback: return as-is
-  return recordData as Record<string, unknown>;
+  // Format 3: plain object (e.g. from an expression)
+  return (recordData ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * Convert a flat object with dotted keys into a nested object.
+ *
+ * `{ "reply.root": "x", "reply.parent": "y", text: "hi" }`
+ * becomes
+ * `{ reply: { root: "x", parent: "y" }, text: "hi" }`.
+ *
+ * Conflicts (a dotted key whose prefix is also a leaf) prefer the more
+ * specific (dotted) value and discard the conflicting leaf.
+ */
+export function unflattenDottedKeys(
+  flat: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(flat)) {
+    if (value === null || value === undefined || value === '') {
+      // Skip empty values — the user didn't fill in this field, and we
+      // don't want to send `null`/`""` to the PDS for optional fields.
+      continue;
+    }
+
+    if (!key.includes('.')) {
+      result[key] = value;
+      continue;
+    }
+
+    const parts = key.split('.');
+    let cursor: Record<string, unknown> = result;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i];
+      const existing = cursor[part];
+      if (
+        existing === undefined ||
+        existing === null ||
+        typeof existing !== 'object'
+      ) {
+        cursor[part] = {};
+      }
+      cursor = cursor[part] as Record<string, unknown>;
+    }
+    cursor[parts[parts.length - 1]] = value;
+  }
+
+  return result;
 }

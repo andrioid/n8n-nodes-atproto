@@ -316,6 +316,13 @@ function parseInlineObjectProperties(
 // Ref resolution
 // ---------------------------------------------------------------------------
 
+/** Resolved ref: properties plus the names of fields required by the
+ * referenced definition. */
+export interface ResolvedRef {
+  properties: Record<string, LexiconProperty>;
+  required: string[];
+}
+
 /**
  * Resolve a local ref (`#someName`) or cross-document ref
  * (`app.bsky.richtext.facet` or `app.bsky.feed.post#replyRef`) to
@@ -324,13 +331,14 @@ function parseInlineObjectProperties(
  * For local refs, looks in the `rawDefs` of the given schema.
  * For cross-document refs, attempts to resolve the target NSID.
  *
- * @returns The resolved properties map, or `null` if resolution fails.
+ * @returns The resolved properties + required-field names, or `null` if
+ *   resolution fails.
  */
 export async function resolveRefProperties(
   ref: string,
   currentSchema: LexiconSchema,
   resolveExternal: (nsid: string) => Promise<LexiconSchema | null>,
-): Promise<Record<string, LexiconProperty> | null> {
+): Promise<ResolvedRef | null> {
   if (ref.startsWith('#')) {
     // Local ref — look up in defs
     const localName = ref.slice(1);
@@ -350,17 +358,21 @@ export async function resolveRefProperties(
     return resolveLocalDef(fragment, resolved.rawDefs);
   }
 
-  // No fragment — return the record's top-level properties
-  return resolved.properties;
+  // No fragment — return the record's top-level properties + required
+  return {
+    properties: resolved.properties,
+    required: resolved.required,
+  };
 }
 
 /**
- * Look up a def by name in the raw defs map and extract its properties.
+ * Look up a def by name in the raw defs map and extract its properties
+ * along with the names of required fields.
  */
 function resolveLocalDef(
   name: string,
   rawDefs?: Record<string, unknown>,
-): Record<string, LexiconProperty> | null {
+): ResolvedRef | null {
   if (!rawDefs) return null;
 
   const def = rawDefs[name] as Record<string, unknown> | undefined;
@@ -368,40 +380,39 @@ function resolveLocalDef(
 
   // Direct object definition
   if (def.type === 'object') {
-    const properties = def.properties as Record<string, unknown> | undefined;
-    if (!properties) return null;
-    const required = (def.required as string[]) ?? [];
-    const nullable = (def.nullable as string[]) ?? [];
-    const result: Record<string, LexiconProperty> = {};
-    for (const [k, v] of Object.entries(properties)) {
-      const p = parseInlineProperty(v as Record<string, unknown>);
-      p.nullable = nullable.includes(k);
-      result[k] = p;
-    }
-    return result;
+    return extractObjectDef(def);
   }
 
   // Token — no properties
   if (def.type === 'token') {
-    return {};
+    return { properties: {}, required: [] };
   }
 
   // Record — unwrap to get the inner object
   if (def.type === 'record') {
     const record = def.record as Record<string, unknown> | undefined;
     if (!record || record.type !== 'object') return null;
-    const properties = record.properties as Record<string, unknown> | undefined;
-    if (!properties) return null;
-    const required = (record.required as string[]) ?? [];
-    const nullable = (record.nullable as string[]) ?? [];
-    const result: Record<string, LexiconProperty> = {};
-    for (const [k, v] of Object.entries(properties)) {
-      const p = parseInlineProperty(v as Record<string, unknown>);
-      p.nullable = nullable.includes(k);
-      result[k] = p;
-    }
-    return result;
+    return extractObjectDef(record);
   }
 
   return null;
+}
+
+/** Extract a `{ properties, required }` pair from an `object`-type def. */
+function extractObjectDef(
+  objDef: Record<string, unknown>,
+): ResolvedRef | null {
+  const properties = objDef.properties as
+    | Record<string, unknown>
+    | undefined;
+  if (!properties) return null;
+  const required = (objDef.required as string[]) ?? [];
+  const nullable = (objDef.nullable as string[]) ?? [];
+  const result: Record<string, LexiconProperty> = {};
+  for (const [k, v] of Object.entries(properties)) {
+    const p = parseInlineProperty(v as Record<string, unknown>);
+    p.nullable = nullable.includes(k);
+    result[k] = p;
+  }
+  return { properties: result, required };
 }
