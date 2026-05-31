@@ -49,20 +49,40 @@
 - [x] Tests: `tests/fieldMapping.test.ts` (15 tests)
 - [x] Tests: `tests/recursiveRef.test.ts` (8 tests)
 
-## Phase 3 — Blob Support
+## ✅ Phase 3 — Blob Support
 
-- [ ] As a user, I can attach a binary property to a blob field and the node uploads it via `uploadBlob` automatically
-- [ ] As a user, the uploaded blob reference is injected into the record in the correct format
+- [x] As a user, I can attach a binary property to a blob field and the node uploads it via `uploadBlob` automatically
+- [x] As a user, the uploaded blob reference is injected into the record in the correct format
+
+## ✅ Phase 4 — Deep Schema Resolution & UX
+
+- [x] Single-ref unions resolved like refs (common ATProto pattern)
+- [x] Type-only lexicons return defs-only schemas for cross-document fragment resolution
+- [x] RGB color refs collapsed to hex string fields (`#3B82F6`)
+- [x] Hex colors expanded to `{ $type, r, g, b }` at execution time
+- [x] Nested `$type` injection on ref/union objects via `injectNestedTypes`
+- [x] Descriptions propagated to flattened ref/union fields
+- [x] Collection NSID → resourceLocator with searchable list (describeRepo)
+- [x] Subtitle showing current operation on canvas
+- [x] Swap Commit moved into Options collection
+- [x] Blob fields show binary property name hint
+- [x] Literal record keys auto-resolve when rkey left empty
+- [x] Multi-ref unions show valid `$type` options in field label
+- [x] Array fields show item type hint in field label
+- [x] Execution-time schema validation with friendly error messages
 
 ## Testing
 
 - [x] Unit tests for TID generation (valid format, uniqueness, sortability)
-- [x] Unit tests for `$type` auto-injection
+- [x] Unit tests for `$type` auto-injection + hex color expansion
 - [x] Unit tests for request construction (correct XRPC endpoint, auth headers, body shape)
 - [x] Unit tests for error handling paths (401, 429, not found, malformed response)
 - [x] Unit tests for lexicon schema → ResourceMapperField mapping
 - [x] Unit tests for recursive ref resolution
+- [x] Unit tests for single-ref union resolution + type-only lexicons
+- [x] Unit tests for schema validation (required fields, types, $type, blobs)
 - [x] Mock XRPC server setup (msw) for all automated tests
+- [x] 125 tests passing
 - [ ] Manual testing against real Bluesky PDS during development
 - [ ] Docker-based integration tests deferred
 

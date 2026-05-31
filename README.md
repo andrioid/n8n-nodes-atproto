@@ -14,7 +14,9 @@ Building a separate n8n node for each lexicon doesn't scale. Building one node t
 
 - **CRUD any AT Protocol record** — create, read, update, delete, and list records in any collection
 - **Dynamic field mapping** — resolves lexicon schemas from the network and presents typed form fields in the n8n editor, so you fill in `title`, `publishedAt`, `tags` rather than crafting raw JSON
-- **Handles the hard parts** — PDS resolution, session management, TID generation, and record key conventions
+- **Deep schema resolution** — follows `ref` chains, resolves single-ref unions, and handles type-only lexicons (like `site.standard.theme.color#rgb`). Color fields collapse to hex inputs (`#3B82F6`)
+- **Smart defaults** — auto-injects `$type` and `createdAt`, auto-resolves literal record keys (e.g. `app.bsky.actor.profile` → `self`), uploads blobs from binary input
+- **Validation before submission** — checks required fields, types, and `$type` discriminators at execution time with clear error messages, before the PDS ever sees the record
 - **Works with any PDS** — Bluesky, self-hosted, Blacksky, or any AT Protocol–compatible server
 
 ## Use Cases
@@ -49,9 +51,15 @@ Or install from the Community Nodes panel in n8n settings.
 1. **Create credentials** — add your AT Protocol handle and an [app password](https://bsky.app/settings/app-passwords)
 2. **Add the node** to a workflow
 3. **Choose an operation** — Create Record, Get Record, etc.
-4. **Enter a collection NSID** — e.g. `site.standard.document`
-5. **Map your fields** — the node resolves the lexicon and shows you the schema's fields
-6. **Run it**
+4. **Pick a collection** — select from the searchable dropdown (lists your repo's collections) or type any NSID manually
+5. **Map your fields** — the node resolves the lexicon and shows you typed form fields. Colors render as hex inputs, blobs explain what to attach, and unions list their valid `$type` options
+6. **Run it** — the node validates your data, injects `$type`/`createdAt`, uploads blobs, and sends the record
+
+### Tips
+
+- **Profiles and other singleton records** — leave the Record Key empty. The node auto-resolves literal keys (e.g. `app.bsky.actor.profile` uses `self`)
+- **Theme colors** — enter hex values like `#3B82F6`. They're expanded to `{ "$type": "site.standard.theme.color#rgb", "r": 59, "g": 130, "b": 246 }` automatically
+- **Blob fields** — the field label tells you to provide a binary property name. Use an HTTP Request or Read Binary File node upstream to attach the file
 
 ## Credentials
 
@@ -60,6 +68,21 @@ Or install from the Community Nodes panel in n8n settings.
 | Identifier | Your handle (e.g. `you.bsky.social`) or DID |
 | App Password | Generated at [bsky.app/settings/app-passwords](https://bsky.app/settings/app-passwords) |
 | Service URL | PDS endpoint (default: `https://bsky.social`) |
+
+## Architecture
+
+The node is deliberately thin — it speaks the AT Protocol and defers everything else to lexicon schemas.
+
+| File | Purpose |
+|------|---------|
+| `Atproto.node.ts` | Node description, collection picker, execute flow |
+| `lexicon.ts` | Schema resolution (PDS endpoint → DNS fallback → null) |
+| `fieldMapping.ts` | Lexicon → n8n ResourceMapperFields (ref flattening, hex colors, descriptions) |
+| `typeInjection.ts` | Nested `$type` injection + hex color expansion at execution time |
+| `validation.ts` | Pre-submission schema validation with friendly errors |
+| `blob.ts` | Binary upload via `com.atproto.repo.uploadBlob` |
+| `operations.ts` | CRUD wrappers with `$type`/`createdAt` auto-injection |
+| `tid.ts` | Timestamp ID generation |
 
 ## Contributing
 

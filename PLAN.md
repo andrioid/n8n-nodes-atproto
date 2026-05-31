@@ -9,9 +9,10 @@
 | Phase 2 — Dynamic field mapping | ✅ Done | 57 | `31140d5`, `34a5e16` (review fixes) |
 | Phase 3 — Blob support | ✅ Done | 11 | `8f468d7` |
 | Distribution — Bundling | ✅ Done | — | `00a4933`, `976ee7e` |
+| Phase 4 — Deep resolution & UX | ✅ Done | 22 | `85beddc`–`b156743` |
 | Distribution — Publish | ⏳ Not started | — | — |
 
-**Current totals:** 103 tests passing, lint clean, build clean (Vite, ~100ms).
+**Current totals:** 125 tests passing, lint clean, build clean (Vite, ~100ms).
 
 ## Decisions Log
 
@@ -19,6 +20,13 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 
 | # | Question | Decision | Rationale |
 |---|----------|----------|-----------|
+| 15 | Single-ref unions | Treat as resolvable refs via `getResolvableRef()` helper | Common ATProto pattern (`type: "union", refs: ["one.ref"]`); user sees flattened fields instead of raw JSON |
+| 16 | Type-only lexicons (no main record) | Return defs-only schema `{ properties: {}, rawDefs }` | Enables fragment resolution for cross-document refs like `site.standard.theme.color#rgb` |
+| 17 | RGB color objects | Collapse to single hex string field; expand at execution time | 4 fields instead of 12; hex is universally understood |
+| 18 | Nested `$type` injection | Walk record + schema at execution time; inject before PDS call | Users shouldn't need to know about AT Protocol discriminators |
+| 19 | Collection picker | `resourceLocator` with `describeRepo` list + free-text NSID mode | Users shouldn't need to memorize NSIDs |
+| 20 | Literal record keys | Auto-resolve from schema when rkey is empty | `app.bsky.actor.profile` always uses `self`; users shouldn't need to know |
+| 21 | Pre-submission validation | Validate against schema before PDS call; bullet-point errors | PDS errors are opaque (`InvalidRecord`); ours say which field is wrong |
 | 1 | `$type` field handling | Auto-inject always from collection NSID | User never thinks about it |
 | 2 | Repo scope for Get/List | Optional repo field, defaults to authenticated user's DID | Supports reading others' public records |
 | 3 | List pagination | One page per execution + cursor | Standard n8n pattern; user chains/loops |

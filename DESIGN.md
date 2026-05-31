@@ -163,9 +163,28 @@ flowchart LR
 
 Complex types (`object`, `union`, `ref`, `array`) render as JSON fields. The user pastes or builds JSON via expressions. Simple types get native n8n inputs.
 
+**Special handling:**
+- **Single-ref unions** (e.g. `{ type: "union", refs: ["site.standard.theme.color#rgb"] }`) are resolved and flattened like regular refs.
+- **RGB color objects** (objects with exactly `r`, `g`, `b` integer properties) collapse to a single hex string field (`#3B82F6`) instead of three number fields.
+- **Multi-ref unions** show the valid `$type` options in the field label.
+- **Arrays** show the item type in the field label.
+- **Blob fields** include a hint that the value should be a binary property name from the input.
+
 ### Recursive `ref` resolution
 
 When a field references another schema (e.g. `app.bsky.richtext.facet`), the node resolves the referenced schema and renders nested typed fields rather than falling back to a raw JSON input. This provides a better UX for complex record types. Resolution follows the same PDS endpoint → fallback chain as the top-level schema.
+
+**Type-only lexicons** (lexicons with no main record, only named type definitions like `site.standard.theme.color`) are supported — `resolveLexiconSchema` returns a defs-only schema so cross-document fragment resolution (e.g. `#rgb`) works.
+
+### Execution-time processing
+
+After the user's field values are collected and un-flattened into nested objects, the execution pipeline runs:
+
+1. **Blob upload** — binary property names → blob references via `uploadBlob`
+2. **Nested `$type` injection** — walks the record + schema and injects `$type` on objects from refs/unions. Hex color strings are expanded to `{ $type, r, g, b }`.
+3. **Schema validation** — checks required fields, type correctness, `$type` discriminators, and blob references. Errors are surfaced as bullet-point lists before the PDS call.
+4. **`$type` + `createdAt` injection** — top-level auto-injection in `operations.ts`.
+5. **XRPC call** — send to PDS.
 
 ### Required fields
 
@@ -233,6 +252,8 @@ n8n-nodes-atproto/
 │           ├── operations.ts           # CRUD operation logic
 │           ├── lexicon.ts              # Resolve + parse lexicon schemas
 │           ├── fieldMapping.ts         # Lexicon schema → ResourceMapperField[]
+│           ├── typeInjection.ts        # Nested $type injection + hex expansion
+│           ├── validation.ts           # Pre-submission schema validation
 │           ├── blob.ts                 # Blob upload for binary fields
 │           ├── tid.ts                  # TID generation
 │           └── atproto.svg             # Node icon
