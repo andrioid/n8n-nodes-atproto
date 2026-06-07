@@ -274,19 +274,25 @@ export class AtprotoJetstreamTrigger implements INodeType {
   async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
     const staticData = this.getWorkflowStaticData('node');
 
-    // Read parameters
-    const endpointParam = this.getNodeParameter('endpoint') as string;
-    const customEndpoint = this.getNodeParameter('customEndpoint') as string;
-    const collectionsParam = this.getNodeParameter('collections') as {
+    // Read parameters. Always pass a default so we don't throw
+    // "Could not get parameter" for fields that are hidden by displayOptions
+    // (customEndpoint only appears when endpoint='custom'; operations only
+    // appears when eventKinds includes 'commit').
+    const endpointParam = this.getNodeParameter('endpoint', '') as string;
+    const customEndpoint = this.getNodeParameter('customEndpoint', '') as string;
+    const collectionsParam = this.getNodeParameter('collections', {}) as {
       collectionValues?: Array<{ collection: string }>;
     };
-    const wantedDidsParam = this.getNodeParameter('wantedDids') as {
+    const wantedDidsParam = this.getNodeParameter('wantedDids', {}) as {
       didValues?: Array<{ did: string }>;
     };
-    const eventKinds = this.getNodeParameter('eventKinds') as string[];
-    const operations = this.getNodeParameter('operations') as string[];
-    const compression = this.getNodeParameter('compression') as boolean;
-    const options = this.getNodeParameter('options') as {
+    const eventKinds = this.getNodeParameter('eventKinds', ['commit']) as string[];
+    const operations = this.getNodeParameter(
+      'operations',
+      ['create', 'update', 'delete'],
+    ) as string[];
+    const compression = this.getNodeParameter('compression', true) as boolean;
+    const options = this.getNodeParameter('options', {}) as {
       maxMessageSize?: number;
     };
 
