@@ -687,8 +687,12 @@ export class Atproto implements INodeType {
     for (let i = 0; i < items.length; i++) {
       try {
         const operation = this.getNodeParameter('operation', i) as string;
+        // `collection` is hidden via displayOptions for blob operations
+        // (uploadBlob / getBlob / listBlobs). Pass an empty resourceLocator
+        // default so getNodeParameter doesn't throw "Could not get parameter"
+        // — blob ops never use the value anyway.
         const collection = extractCollectionNsid(
-          this.getNodeParameter('collection', i),
+          this.getNodeParameter('collection', i, { mode: 'list', value: '' }),
         );
 
         let result: IDataObject;
