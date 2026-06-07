@@ -19,6 +19,7 @@ export default defineConfig({
       entry: {
         'nodes/Atproto/Atproto.node': resolve(__dirname, 'src/nodes/Atproto/Atproto.node.ts'),
         'nodes/Atproto/AtprotoJetstreamTrigger.node': resolve(__dirname, 'src/nodes/Atproto/AtprotoJetstreamTrigger.node.ts'),
+        'nodes/Bluesky/Bluesky.node': resolve(__dirname, 'src/nodes/Bluesky/Bluesky.node.ts'),
         'credentials/AtprotoApi.credentials': resolve(
           __dirname,
           'src/credentials/AtprotoApi.credentials.ts',
@@ -53,6 +54,7 @@ export default defineConfig({
         const staticPatterns = [
           { src: 'src/nodes/Atproto/atproto.svg', dest: 'dist/nodes/Atproto/atproto.svg' },
           { src: 'src/nodes/Atproto/zstd_dictionary', dest: 'dist/nodes/Atproto/zstd_dictionary' },
+          { src: 'src/nodes/Bluesky/bluesky.svg', dest: 'dist/nodes/Bluesky/bluesky.svg' },
         ];
         for (const { src, dest } of staticPatterns) {
           mkdirSync(resolve(__dirname, dest, '..'), { recursive: true });
