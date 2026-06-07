@@ -58,9 +58,11 @@ export class AtprotoJetstreamTrigger implements INodeType {
     defaults: {
       name: 'AT Protocol Jetstream',
     },
-    // Triggers fire on incoming events — they don't expose a callable
-    // surface for AI agents the way execute() nodes do.
-    usableAsTool: false,
+    // Triggers fire on incoming events and can't actually be invoked as
+    // tools by AI agents. The @n8n/community-nodes lint rule requires
+    // this property and the n8n-workflow type rejects `false`, so we set
+    // `true` and trust n8n core to ignore it for trigger-type nodes.
+    usableAsTool: true,
     inputs: [],
     outputs: [],
     credentials: [
