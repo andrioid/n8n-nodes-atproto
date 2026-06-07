@@ -58,6 +58,9 @@ export class AtprotoJetstreamTrigger implements INodeType {
     defaults: {
       name: 'AT Protocol Jetstream',
     },
+    // Triggers fire on incoming events — they don't expose a callable
+    // surface for AI agents the way execute() nodes do.
+    usableAsTool: false,
     inputs: [],
     outputs: [],
     credentials: [

@@ -58,11 +58,12 @@ export class Bluesky implements INodeType {
         name: 'resource',
         type: 'options',
         noDataExpression: true,
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
         options: [
-          { name: 'Post', value: 'post' },
-          { name: 'Like', value: 'like' },
-          { name: 'Repost', value: 'repost' },
           { name: 'Follow', value: 'follow' },
+          { name: 'Like', value: 'like' },
+          { name: 'Post', value: 'post' },
+          { name: 'Repost', value: 'repost' },
         ],
         default: 'post',
       },
@@ -78,6 +79,7 @@ export class Bluesky implements INodeType {
         displayOptions: {
           show: { resource: ['post'] },
         },
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
         options: [
           {
             name: 'Create',
@@ -86,16 +88,16 @@ export class Bluesky implements INodeType {
             action: 'Create a post',
           },
           {
-            name: 'Reply',
-            value: 'reply',
-            description: 'Reply to an existing post',
-            action: 'Reply to a post',
-          },
-          {
             name: 'Quote',
             value: 'quote',
             description: 'Quote-post an existing post',
             action: 'Quote a post',
+          },
+          {
+            name: 'Reply',
+            value: 'reply',
+            description: 'Reply to an existing post',
+            action: 'Reply to a post',
           },
         ],
         default: 'create',
