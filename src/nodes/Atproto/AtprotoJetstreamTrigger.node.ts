@@ -1,6 +1,5 @@
 import type {
   IDataObject,
-  INodeProperties,
   INodeType,
   INodeTypeDescription,
   ITriggerFunctions,
@@ -9,6 +8,7 @@ import type {
 
 import { JetstreamClient } from './jetstream';
 import type { FlattenedJetstreamEvent } from './jetstream';
+import { extractCollectionNsid, searchCollections } from './shared';
 
 // ---------------------------------------------------------------------------
 // Public Jetstream instances
@@ -105,10 +105,11 @@ export class AtprotoJetstreamTrigger implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Collections
+      // Collections (resourceLocator inside fixedCollection — same picker
+      // as the action node, but you can add multiple entries)
       // ------------------------------------------------------------------
       {
-        displayName: 'Collections (NSID)',
+        displayName: 'Collections',
         name: 'collections',
         type: 'fixedCollection',
         typeOptions: {
@@ -124,13 +125,42 @@ export class AtprotoJetstreamTrigger implements INodeType {
             name: 'collectionValues',
             values: [
               {
-                displayName: 'Collection NSID',
+                displayName: 'Collection',
                 name: 'collection',
-                type: 'string',
-                default: '',
-                placeholder: 'e.g. app.bsky.feed.post',
+                type: 'resourceLocator',
+                default: { mode: 'list', value: '' },
                 description:
-                  'NSID of the collection (supports wildcard prefixes like app.bsky.feed.*)',
+                  'NSID of the collection. Supports wildcard prefixes like app.bsky.feed.* in "By NSID" mode.',
+                modes: [
+                  {
+                    displayName: 'From List',
+                    name: 'list',
+                    type: 'list',
+                    placeholder: 'Select a collection…',
+                    typeOptions: {
+                      searchListMethod: 'searchCollections',
+                      searchable: true,
+                    },
+                  },
+                  {
+                    displayName: 'By NSID',
+                    name: 'nsid',
+                    type: 'string',
+                    placeholder: 'e.g. app.bsky.feed.post or app.bsky.feed.*',
+                    // Allow wildcard suffix for Jetstream prefix matching
+                    validation: [
+                      {
+                        type: 'regex',
+                        properties: {
+                          regex:
+                            '^[a-z][a-z0-9]*(\\.[a-zA-Z][a-zA-Z0-9]*){2,}(\\.\\*)?$',
+                          errorMessage:
+                            'Must be a valid NSID (e.g. app.bsky.feed.post) or wildcard prefix (e.g. app.bsky.feed.*)',
+                        },
+                      },
+                    ],
+                  },
+                ],
               },
             ],
           },
@@ -269,6 +299,15 @@ export class AtprotoJetstreamTrigger implements INodeType {
   };
 
   // -----------------------------------------------------------------------
+  // listSearch — powers the Collections resourceLocator picker
+  // -----------------------------------------------------------------------
+  methods = {
+    listSearch: {
+      searchCollections,
+    },
+  };
+
+  // -----------------------------------------------------------------------
   // Trigger
   // -----------------------------------------------------------------------
   async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
@@ -281,7 +320,7 @@ export class AtprotoJetstreamTrigger implements INodeType {
     const endpointParam = this.getNodeParameter('endpoint', '') as string;
     const customEndpoint = this.getNodeParameter('customEndpoint', '') as string;
     const collectionsParam = this.getNodeParameter('collections', {}) as {
-      collectionValues?: Array<{ collection: string }>;
+      collectionValues?: Array<{ collection: unknown }>;
     };
     const wantedDidsParam = this.getNodeParameter('wantedDids', {}) as {
       didValues?: Array<{ did: string }>;
@@ -308,10 +347,11 @@ export class AtprotoJetstreamTrigger implements INodeType {
       );
     }
 
-    // Extract collections
+    // Extract collections — each entry's `collection` is a resourceLocator
+    // `{ mode, value }` object, so route through extractCollectionNsid().
     const wantedCollections = collectionsParam?.collectionValues
-      ?.map((c) => c.collection)
-      .filter(Boolean);
+      ?.map((c) => extractCollectionNsid(c.collection))
+      .filter((nsid) => nsid.length > 0);
 
     // Extract DIDs
     const wantedDids = wantedDidsParam?.didValues

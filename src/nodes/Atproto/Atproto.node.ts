@@ -3,13 +3,12 @@ import type {
   IExecuteFunctions,
   ILoadOptionsFunctions,
   INodeExecutionData,
-  INodeListSearchResult,
   INodeType,
   INodeTypeDescription,
   ResourceMapperFields,
 } from 'n8n-workflow';
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
-import { Agent, CredentialSession } from '@atproto/api';
+import type { Agent } from '@atproto/api';
 
 import {
   createRecord,
@@ -19,6 +18,7 @@ import {
   putRecord,
   applyConstValues,
 } from './operations';
+import { createAgent, extractCollectionNsid, searchCollections } from './shared';
 import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
 import { lexiconToResourceMapperFields } from './fieldMapping';
@@ -73,20 +73,6 @@ function friendlyError(error: unknown, context?: Record<string, string>): string
 }
 
 // ---------------------------------------------------------------------------
-// Helper: create an authenticated Agent from node credentials
-// ---------------------------------------------------------------------------
-
-async function createAgent(credentials: IDataObject): Promise<Agent> {
-  const identifier = credentials.identifier as string;
-  const appPassword = credentials.appPassword as string;
-  const serviceUrl = (credentials.serviceUrl as string) || 'https://bsky.social';
-
-  const session = new CredentialSession(new URL(serviceUrl));
-  await session.login({ identifier, password: appPassword });
-  return new Agent(session);
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -112,20 +98,6 @@ async function resolveRkey(
   throw new Error(
     `Record key is required for ${collection}. The lexicon does not declare a fixed key.`,
   );
-}
-
-/**
- * Extract the NSID string from a collection parameter.
- *
- * Handles both the plain string (legacy / expressions) and the
- * resourceLocator object `{ mode, value }` returned by the RLC widget.
- */
-function extractCollectionNsid(param: unknown): string {
-  if (typeof param === 'string') return param;
-  if (param && typeof param === 'object' && 'value' in param) {
-    return String((param as { value: unknown }).value ?? '');
-  }
-  return '';
 }
 
 // ---------------------------------------------------------------------------
@@ -434,37 +406,7 @@ export class Atproto implements INodeType {
   // -----------------------------------------------------------------------
   methods = {
     listSearch: {
-      searchCollections: async function (
-        this: ILoadOptionsFunctions,
-        filter?: string,
-      ): Promise<INodeListSearchResult> {
-        try {
-          const credentials = await this.getCredentials('atprotoApi');
-          const agent = await createAgent(credentials as IDataObject);
-
-          const response = await agent.com.atproto.repo.describeRepo({
-            repo: agent.did!,
-          });
-
-          let collections = (response.data as { collections?: string[] })
-            .collections ?? [];
-
-          if (filter) {
-            const q = filter.toLowerCase();
-            collections = collections.filter((c) =>
-              c.toLowerCase().includes(q),
-            );
-          }
-
-          return {
-            results: collections
-              .sort()
-              .map((nsid) => ({ name: nsid, value: nsid })),
-          };
-        } catch {
-          return { results: [] };
-        }
-      },
+      searchCollections,
     },
     resourceMapping: {
       getRecordFields: async function (
