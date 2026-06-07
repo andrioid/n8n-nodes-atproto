@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { RichText } from '@atproto/api';
 
-import { parsePostUri } from '../src/nodes/Bluesky/postUri';
+import { parsePostUri } from '../nodes/Bluesky/postUri';
 
 describe('parsePostUri', () => {
   it('parses a canonical at:// URI', () => {

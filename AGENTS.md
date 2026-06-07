@@ -1,0 +1,4 @@
+- **Never** disable type-safety or linting rules. Fix the code instead.
+- **Never** add comments that are already sufficiently explained through code. Comments **must** be as slim as possible.
+- Before committing, run "npm run lint:fix" and a tsc typecheck
+- **Avoid** adding tests for implementation specifics. Test behavior instead.

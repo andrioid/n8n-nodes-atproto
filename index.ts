@@ -3,6 +3,6 @@
 // "main": "dist/index.js" points at a real file.
 
 export { Atproto } from './nodes/Atproto/Atproto.node';
-export { AtprotoJetstreamTrigger } from './nodes/Atproto/AtprotoJetstreamTrigger.node';
-export { Bluesky } from './nodes/Bluesky/Bluesky.node';
+export { AtprotoTrigger } from './nodes/Atproto/AtprotoTrigger.node';
+export { AtprotoBluesky } from './nodes/Bluesky/AtprotoBluesky.node';
 export { AtprotoApi } from './credentials/AtprotoApi.credentials';

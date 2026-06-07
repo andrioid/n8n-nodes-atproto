@@ -13,7 +13,7 @@ import {
   putRecord,
   deleteRecord,
   listRecords,
-} from '../src/nodes/Atproto/operations';
+} from '../nodes/Atproto/operations';
 
 import {
   server,

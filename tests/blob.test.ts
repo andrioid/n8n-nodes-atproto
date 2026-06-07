@@ -9,8 +9,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 import type { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
-import { applyBlobUploads } from '../src/nodes/Atproto/blob';
-import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { applyBlobUploads } from '../nodes/Atproto/blob';
+import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../nodes/Atproto/lexicon';
 import { CONSTRAINED_SCHEMA } from './mockLexicons';
 import {
   server,

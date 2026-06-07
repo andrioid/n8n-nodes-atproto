@@ -5,6 +5,7 @@ import type {
   ITriggerFunctions,
   ITriggerResponse,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
 import { JetstreamClient } from './jetstream';
 import type { FlattenedJetstreamEvent } from './jetstream';
@@ -14,34 +15,11 @@ import { extractCollectionNsid, searchCollections } from './shared';
 // Public Jetstream instances
 // ---------------------------------------------------------------------------
 
-const PUBLIC_ENDPOINTS = [
-  {
-    name: 'US-East 1',
-    value: 'wss://jetstream1.us-east.bsky.network/subscribe',
-    description: 'Bluesky Jetstream instance in US-East (Virginia)',
-  },
-  {
-    name: 'US-East 2',
-    value: 'wss://jetstream2.us-east.bsky.network/subscribe',
-    description: 'Bluesky Jetstream instance in US-East (Virginia)',
-  },
-  {
-    name: 'US-West 1',
-    value: 'wss://jetstream1.us-west.bsky.network/subscribe',
-    description: 'Bluesky Jetstream instance in US-West (Oregon)',
-  },
-  {
-    name: 'US-West 2',
-    value: 'wss://jetstream2.us-west.bsky.network/subscribe',
-    description: 'Bluesky Jetstream instance in US-West (Oregon)',
-  },
-] as const;
-
 // ---------------------------------------------------------------------------
 // Node
 // ---------------------------------------------------------------------------
 
-export class AtprotoJetstreamTrigger implements INodeType {
+export class AtprotoTrigger implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'AT Protocol Jetstream Trigger',
     // Note: `name` ends in "Trigger" with the action node's name as the prefix
@@ -58,9 +36,11 @@ export class AtprotoJetstreamTrigger implements INodeType {
     defaults: {
       name: 'AT Protocol Jetstream',
     },
-    // Triggers fire on incoming events — they don't expose a callable
-    // surface for AI agents the way execute() nodes do.
-    usableAsTool: false,
+    // Triggers fire on incoming events and can't actually be invoked as
+    // tools by AI agents. The @n8n/community-nodes lint rule requires
+    // this property and the n8n-workflow type rejects `false`, so we set
+    // `true` and trust n8n core to ignore it for trigger-type nodes.
+    usableAsTool: true,
     inputs: [],
     outputs: [],
     credentials: [
@@ -77,18 +57,37 @@ export class AtprotoJetstreamTrigger implements INodeType {
         displayName: 'Jetstream Endpoint',
         name: 'endpoint',
         type: 'options',
+        // Inlined (not spread from a const) so the n8n-nodes-base
+        // `node-param-default-wrong-for-options` rule can verify the
+        // default below is a known option value at static-analysis time.
         default: 'wss://jetstream2.us-west.bsky.network/subscribe',
         description: 'The Jetstream WebSocket endpoint to connect to',
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
         options: [
-          ...PUBLIC_ENDPOINTS.map((e) => ({
-            name: e.name,
-            value: e.value,
-            description: e.description,
-          })),
           {
             name: 'Custom',
             value: 'custom',
             description: 'Use a custom Jetstream WebSocket endpoint',
+          },
+          {
+            name: 'US-East 1',
+            value: 'wss://jetstream1.us-east.bsky.network/subscribe',
+            description: 'Bluesky Jetstream instance in US-East (Virginia)',
+          },
+          {
+            name: 'US-East 2',
+            value: 'wss://jetstream2.us-east.bsky.network/subscribe',
+            description: 'Bluesky Jetstream instance in US-East (Virginia)',
+          },
+          {
+            name: 'US-West 1',
+            value: 'wss://jetstream1.us-west.bsky.network/subscribe',
+            description: 'Bluesky Jetstream instance in US-West (Oregon)',
+          },
+          {
+            name: 'US-West 2',
+            value: 'wss://jetstream2.us-west.bsky.network/subscribe',
+            description: 'Bluesky Jetstream instance in US-West (Oregon)',
           },
         ],
       },
@@ -286,7 +285,7 @@ export class AtprotoJetstreamTrigger implements INodeType {
         default: {},
         options: [
           {
-            displayName: 'Max Message Size (bytes)',
+            displayName: 'Max Message Size (Bytes)',
             name: 'maxMessageSize',
             type: 'number',
             default: 0,
@@ -345,7 +344,8 @@ export class AtprotoJetstreamTrigger implements INodeType {
         : endpointParam;
 
     if (!endpoint) {
-      throw new Error(
+      throw new NodeOperationError(
+        this.getNode(),
         'Jetstream endpoint is required. Select a public instance or provide a custom endpoint.',
       );
     }

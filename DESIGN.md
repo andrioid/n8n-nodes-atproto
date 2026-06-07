@@ -243,20 +243,29 @@ No image processing, no OG scraping, no rich text parsing. The node is deliberat
 
 ```
 n8n-nodes-atproto/
-├── src/
-│   ├── credentials/
-│   │   └── AtprotoApi.credentials.ts   # Handle, app password, service URL
-│   └── nodes/
-│       └── Atproto/
-│           ├── Atproto.node.ts         # Main node: description + execute()
-│           ├── operations.ts           # CRUD operation logic
-│           ├── lexicon.ts              # Resolve + parse lexicon schemas
-│           ├── fieldMapping.ts         # Lexicon schema → ResourceMapperField[]
-│           ├── typeInjection.ts        # Nested $type injection + hex expansion
-│           ├── validation.ts           # Pre-submission schema validation
-│           ├── blob.ts                 # Blob upload for binary fields
-│           ├── tid.ts                  # TID generation
-│           └── atproto.svg             # Node icon
+├── credentials/
+│   └── AtprotoApi.credentials.ts       # Handle, app password, service URL
+├── nodes/
+│   ├── Atproto/
+│   │   ├── Atproto.node.ts             # Main node: description + execute()
+│   │   ├── AtprotoTrigger.node.ts      # Jetstream firehose trigger
+│   │   ├── operations.ts               # CRUD + blob operation logic
+│   │   ├── lexicon.ts                  # Resolve + parse lexicon schemas
+│   │   ├── fieldMapping.ts             # Lexicon schema → ResourceMapperField[]
+│   │   ├── typeInjection.ts            # Nested $type injection
+│   │   ├── validation.ts               # Pre-submission schema validation
+│   │   ├── blob.ts                     # Lexicon-driven blob upload
+│   │   ├── blobInput.ts                # User blob-input parser
+│   │   ├── jetstream.ts                # Jetstream WebSocket client
+│   │   ├── shared.ts                   # Agent + helpers
+│   │   ├── tid.ts                      # TID generation
+│   │   └── atproto.svg                 # Node icon
+│   └── Bluesky/
+│       ├── AtprotoBluesky.node.ts      # Opinionated Bluesky wrappers
+│       ├── operations.ts               # Bluesky-specific builders
+│       ├── postUri.ts                  # at:// + bsky.app URI parser
+│       └── bluesky.svg                 # Node icon
+├── index.ts                            # Barrel export (n8n loads via package.json)
 ├── tests/
 ├── scripts/
 │   └── patch-node-js-exports.mjs       # postinstall: fix uint8arrays for dev
@@ -270,7 +279,7 @@ n8n-nodes-atproto/
 └── PLAN.md
 ```
 
-Files live under `src/`. `n8n-node dev` watches and hot-reloads. `vite build` bundles everything into `dist/` with zero runtime dependencies.
+Source lives at the repo root (the layout n8n's verification lints expect). `n8n-node dev` watches and hot-reloads. `vite build` bundles everything into `dist/` with zero runtime dependencies.
 
 ## Phasing
 

@@ -7,7 +7,7 @@ import type {
   INodeTypeDescription,
   ResourceMapperFields,
 } from 'n8n-workflow';
-import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
+import { ApplicationError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import type { Agent } from '@atproto/api';
 
 import type { ListRecordsResult } from './operations';
@@ -122,7 +122,7 @@ async function resolveRkey(
     return schema.literalKey;
   }
 
-  throw new Error(
+  throw new ApplicationError(
     `Record key is required for ${collection}. The lexicon does not declare a fixed key.`,
   );
 }
@@ -306,10 +306,9 @@ export class Atproto implements INodeType {
       // Repo (for Get/List Record + List Blobs — optional, defaults to self)
       // ------------------------------------------------------------------
       {
-        displayName: 'Repo (DID or handle)',
+        displayName: 'Repo (DID or Handle)',
         name: 'repo',
         type: 'string',
-        required: false,
         placeholder: 'did:plc:... or user.bsky.social',
         description:
           'Optional. The DID or handle of the repo. Defaults to the authenticated user. Useful for reading other users\' public records or blobs.',
@@ -326,10 +325,9 @@ export class Atproto implements INodeType {
       // CID field is a bsky CDN URL with the DID embedded)
       // ------------------------------------------------------------------
       {
-        displayName: 'Repo (DID or handle)',
+        displayName: 'Repo (DID or Handle)',
         name: 'repo',
         type: 'string',
-        required: false,
         placeholder: 'did:plc:... or user.bsky.social',
         description:
           'The DID or handle of the repo that owns the blob. Optional when the CID field is a bsky CDN URL — the DID is extracted from the URL.',
@@ -453,10 +451,9 @@ export class Atproto implements INodeType {
       // Record Key — shown for Get/Put/Delete
       // ------------------------------------------------------------------
       {
-        displayName: 'Record Key (rkey)',
+        displayName: 'Record Key (Rkey)',
         name: 'rkey',
         type: 'string',
-        required: false,
         placeholder: '3jzfcijpj2z2a',
         description:
           'The record key. Leave empty for collections that use a fixed key (e.g. app.bsky.actor.profile always uses "self").',
@@ -477,7 +474,7 @@ export class Atproto implements INodeType {
         type: 'options',
         options: [
           {
-            name: 'Auto-generate (TID)',
+            name: 'Auto-Generate (TID)',
             value: 'auto',
             description: 'Generate a timestamp-based record key (TID) automatically',
           },
@@ -579,8 +576,7 @@ export class Atproto implements INodeType {
         name: 'returnAll',
         type: 'boolean',
         default: false,
-        description:
-          'Whether to paginate through all results automatically. When off, returns one page using Limit / Cursor.',
+        description: 'Whether to return all results or only up to a given limit',
         displayOptions: {
           show: {
             operation: ['listRecords', 'listBlobs'],
@@ -606,7 +602,7 @@ export class Atproto implements INodeType {
           },
         },
         default: 50,
-        description: 'Maximum number of items to return per page',
+        description: 'Max number of results to return',
       },
 
       // ------------------------------------------------------------------
@@ -616,7 +612,6 @@ export class Atproto implements INodeType {
         displayName: 'Cursor',
         name: 'cursor',
         type: 'string',
-        required: false,
         placeholder: '...',
         description:
           'Optional. Cursor for pagination. Pass the cursor from a previous response to get the next page.',
@@ -692,8 +687,12 @@ export class Atproto implements INodeType {
     for (let i = 0; i < items.length; i++) {
       try {
         const operation = this.getNodeParameter('operation', i) as string;
+        // `collection` is hidden via displayOptions for blob operations
+        // (uploadBlob / getBlob / listBlobs). Pass an empty resourceLocator
+        // default so getNodeParameter doesn't throw "Could not get parameter"
+        // — blob ops never use the value anyway.
         const collection = extractCollectionNsid(
-          this.getNodeParameter('collection', i),
+          this.getNodeParameter('collection', i, { mode: 'list', value: '' }),
         );
 
         let result: IDataObject;

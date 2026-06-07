@@ -11,13 +11,13 @@
     "declarationMap": true,
     "sourceMap": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "baseUrl": ".",
     "paths": {
       "@atproto/api": ["node_modules/@atproto/api/dist/index"],
       "@atproto/*": ["node_modules/@atproto/*"]
     }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["credentials/**/*.ts", "nodes/**/*.ts", "index.ts"],
+  "exclude": ["node_modules", "dist", "tests", "scripts"]
 }

@@ -12,9 +12,9 @@ import { describe, it, expect } from 'vitest';
 import {
   buildRecordFromNodeParams,
   unflattenDottedKeys,
-} from '../src/nodes/Atproto/Atproto.node';
-import { applyConstValues } from '../src/nodes/Atproto/operations';
-import { parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+} from '../nodes/Atproto/Atproto.node';
+import { applyConstValues } from '../nodes/Atproto/operations';
+import { parseLexiconDoc } from '../nodes/Atproto/lexicon';
 import { CONSTRAINED_SCHEMA } from './mockLexicons';
 
 describe('unflattenDottedKeys', () => {

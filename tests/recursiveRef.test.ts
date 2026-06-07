@@ -18,7 +18,7 @@ import {
   resolveRefProperties,
   clearLexiconCache,
   type LexiconSchema,
-} from '../src/nodes/Atproto/lexicon';
+} from '../nodes/Atproto/lexicon';
 import { server, PDS_URL, CID_1, CID_2, CID_3, setMockResponse, clearMockResponses } from './setup';
 import { APP_BSKY_FEED_POST, DEEPLY_NESTED } from './mockLexicons';
 

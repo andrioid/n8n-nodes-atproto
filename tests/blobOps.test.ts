@@ -23,7 +23,7 @@ import {
   getBlob,
   listBlobs,
   resolveActorToDid,
-} from '../src/nodes/Atproto/operations';
+} from '../nodes/Atproto/operations';
 
 import {
   server,
