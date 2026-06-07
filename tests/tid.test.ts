@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { generateTid } from '../src/nodes/Atproto/tid';
+import { generateTid } from '../nodes/Atproto/tid';
 
 const S32_CHAR = '234567abcdefghijklmnopqrstuvwxyz';
 const TID_REGEX = /^[234567abcdefghij][234567abcdefghijklmnopqrstuvwxyz]{12}$/;

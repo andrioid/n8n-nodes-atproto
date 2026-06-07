@@ -11,9 +11,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
-import { createRecord, putRecord } from '../src/nodes/Atproto/operations';
-import { injectNestedTypes } from '../src/nodes/Atproto/typeInjection';
-import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
+import { createRecord, putRecord } from '../nodes/Atproto/operations';
+import { injectNestedTypes } from '../nodes/Atproto/typeInjection';
+import { resolveLexiconSchema, clearLexiconCache } from '../nodes/Atproto/lexicon';
 import { SINGLE_REF_UNION, TYPE_ONLY_COLOR, PUBLICATION_WITH_THEME } from './mockLexicons';
 import {
   server,

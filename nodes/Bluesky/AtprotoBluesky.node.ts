@@ -27,10 +27,10 @@ import {
   repostPost,
 } from './operations';
 
-export class Bluesky implements INodeType {
+export class AtprotoBluesky implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Bluesky',
-    name: 'atproto-bluesky',
+    name: 'atprotoBluesky',
     icon: 'file:bluesky.svg',
     group: ['transform'],
     version: 1,

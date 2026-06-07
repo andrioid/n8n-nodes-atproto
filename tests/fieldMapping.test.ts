@@ -13,8 +13,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
-import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
-import { lexiconToResourceMapperFields } from '../src/nodes/Atproto/fieldMapping';
+import { resolveLexiconSchema, clearLexiconCache } from '../nodes/Atproto/lexicon';
+import { lexiconToResourceMapperFields } from '../nodes/Atproto/fieldMapping';
 import { server, PDS_URL, CID_1, CID_2, CID_3, setMockResponse, clearMockResponses } from './setup';
 import {
   APP_BSKY_FEED_POST,
@@ -26,7 +26,7 @@ import {
   PUBLICATION_WITH_THEME,
   CONSTRAINED_SCHEMA,
 } from './mockLexicons';
-import { parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { parseLexiconDoc } from '../nodes/Atproto/lexicon';
 
 let agent: Agent | null;
 

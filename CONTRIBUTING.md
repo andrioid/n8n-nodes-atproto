@@ -19,7 +19,7 @@ npm install
 npm run dev
 ```
 
-Starts n8n on **http://localhost:5678** with the node linked and hot-reload enabled. Edit any file in `src/` → save → n8n rebuilds and restarts automatically. Refresh the browser to pick up changes.
+Starts n8n on **http://localhost:5678** with the node linked and hot-reload enabled. Edit any source file (under `nodes/`, `credentials/`, or `index.ts`) → save → n8n rebuilds and restarts automatically. Refresh the browser to pick up changes.
 
 In the n8n editor: **Add node** → search "AT Protocol" → add credentials (handle + [app password](https://bsky.app/settings/app-passwords)) → test.
 
@@ -57,15 +57,24 @@ Tests use [vitest](https://vitest.dev) + [msw](https://mswjs.io) to mock the XRP
 ## Architecture
 
 ```
-src/nodes/Atproto/
+nodes/Atproto/
 ├── Atproto.node.ts     — Node description, collection picker, execute flow
-├── operations.ts       — CRUD wrappers (createRecord, getRecord, etc.)
+├── AtprotoTrigger.node.ts — Jetstream firehose subscriber
+├── operations.ts       — CRUD + blob wrappers (createRecord, uploadBlob, etc.)
 ├── lexicon.ts          — Lexicon schema resolution (PDS + DNS fallback)
 ├── fieldMapping.ts     — Lexicon types → n8n ResourceMapperFields
-├── typeInjection.ts    — Nested $type injection + hex color expansion
+├── typeInjection.ts    — Nested $type injection
 ├── validation.ts       — Pre-submission schema validation
-├── blob.ts             — Binary upload for blob-typed fields
+├── blob.ts             — Lexicon-driven blob upload for record fields
+├── blobInput.ts        — Parse user blob input (CID / BlobRef JSON / CDN URL)
+├── jetstream.ts        — Jetstream WebSocket client + event flattening
+├── shared.ts           — Agent creation + collection list helpers
 └── tid.ts              — TID (timestamp ID) generation
+
+nodes/Bluesky/
+├── AtprotoBluesky.node.ts — Opinionated Bluesky operations (post, like, etc.)
+├── operations.ts          — Bluesky-specific record builders
+└── postUri.ts             — Parse at:// and bsky.app URIs to repo/rkey
 ```
 
 ### How it works

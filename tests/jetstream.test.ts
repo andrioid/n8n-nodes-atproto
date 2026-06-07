@@ -15,8 +15,8 @@ import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 const { Server: WsServer } = _require('ws');
 
-import { flattenEvent, JetstreamClient } from '../src/nodes/Atproto/jetstream';
-import type { JetstreamEvent, FlattenedJetstreamEvent } from '../src/nodes/Atproto/jetstream';
+import { flattenEvent, JetstreamClient } from '../nodes/Atproto/jetstream';
+import type { JetstreamEvent, FlattenedJetstreamEvent } from '../nodes/Atproto/jetstream';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -302,7 +302,7 @@ describe('zstd dictionary round-trip', () => {
 
   beforeAll(() => {
     dictionary = readFileSync(
-      resolve(__dirname, '../src/nodes/Atproto/zstd_dictionary'),
+      resolve(__dirname, '../nodes/Atproto/zstd_dictionary'),
     );
   });
 
@@ -415,7 +415,7 @@ describe('JetstreamClient WebSocket integration', () => {
     const errors: Error[] = [];
 
     const dictionary = readFileSync(
-      resolve(__dirname, '../src/nodes/Atproto/zstd_dictionary'),
+      resolve(__dirname, '../nodes/Atproto/zstd_dictionary'),
     );
 
     const client = new JetstreamClient(

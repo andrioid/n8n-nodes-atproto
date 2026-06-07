@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
-import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../nodes/Atproto/lexicon';
 import { server, PDS_URL, CID_1, CID_2, CID_3 } from './setup';
 import { APP_BSKY_FEED_POST, QUERY_NOT_RECORD, INLINE_OBJECT, DEEPLY_NESTED, CONSTRAINED_SCHEMA } from './mockLexicons';
 import { setMockResponse, clearMockResponses } from './setup';

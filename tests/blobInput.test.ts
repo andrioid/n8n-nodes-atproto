@@ -6,7 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { parseBlobReference } from '../src/nodes/Atproto/blobInput';
+import { parseBlobReference } from '../nodes/Atproto/blobInput';
 
 const CID = 'bafkreig5w6rxh4mxr5hlqlggbnsj4j4yfk5x5w5ojeyxnvxubrgyhcpkfa';
 const DID = 'did:plc:abc123xyz';

@@ -5,8 +5,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
-import { validateRecord } from '../src/nodes/Atproto/validation';
-import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
+import { validateRecord } from '../nodes/Atproto/validation';
+import { resolveLexiconSchema, clearLexiconCache } from '../nodes/Atproto/lexicon';
 import {
   server,
   PDS_URL,
@@ -24,7 +24,7 @@ import {
   APP_BSKY_FEED_POST,
   CONSTRAINED_SCHEMA,
 } from './mockLexicons';
-import { parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { parseLexiconDoc } from '../nodes/Atproto/lexicon';
 
 let agent: Agent;
 
