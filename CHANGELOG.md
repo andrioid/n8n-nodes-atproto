@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.1.1...n8n-nodes-atproto-v0.1.2) (2026-06-07)
+
+
+### Bug Fixes
+
+* **lint:** satisfy @n8n/community-nodes rules ([9f73697](https://github.com/andrioid/n8n-nodes-atproto/commit/9f73697489df2ba43379ee9a106bca11e6da360c))
+
 ## [0.1.1](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.1.0...n8n-nodes-atproto-v0.1.1) (2026-06-07)
 
 
