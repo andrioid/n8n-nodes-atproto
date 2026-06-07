@@ -64,6 +64,13 @@ const defaultResponses: MockResponses = {
     cid: CID_2,
   }),
   'com.atproto.repo.deleteRecord': () => ({}),
+  'com.atproto.sync.listBlobs': () => ({
+    cids: [CID_1, CID_2, CID_3],
+    cursor: 'next-blob-cursor',
+  }),
+  'com.atproto.identity.resolveHandle': () => ({
+    did: FAKE_DID,
+  }),
   'com.atproto.repo.listRecords': () => ({
     records: [
       {
@@ -199,6 +206,51 @@ export const server = setupServer(
   http.get(xrpcRegex('com.atproto.repo.listRecords'), async ({ request }) => {
     await captureRequest(request);
     return xrpcHandler('com.atproto.repo.listRecords');
+  }),
+
+  http.get(xrpcRegex('com.atproto.identity.resolveHandle'), async ({ request }) => {
+    await captureRequest(request);
+    return xrpcHandler('com.atproto.identity.resolveHandle');
+  }),
+
+  // Blob download — returns raw binary, not JSON. Tests can override the
+  // body/Content-Type via setMockResponse('com.atproto.sync.getBlob', ...).
+  http.get(xrpcRegex('com.atproto.sync.getBlob'), async ({ request }) => {
+    await captureRequest(request);
+    const handler = responseOverrides['com.atproto.sync.getBlob'];
+    if (handler) {
+      const fake = handler() as {
+        body?: ArrayBuffer | Buffer | Uint8Array;
+        contentType?: string;
+        status?: number;
+      };
+      if (fake.status && fake.status !== 200) {
+        return HttpResponse.json(
+          { error: 'BlobNotFound', message: 'mock error' },
+          { status: fake.status },
+        );
+      }
+      const body =
+        fake.body instanceof ArrayBuffer
+          ? new Uint8Array(fake.body)
+          : fake.body ?? new Uint8Array();
+      return new HttpResponse(body, {
+        status: 200,
+        headers: {
+          'content-type': fake.contentType ?? 'application/octet-stream',
+        },
+      });
+    }
+    // Default: return a tiny fake blob
+    return new HttpResponse(new Uint8Array([0xde, 0xad, 0xbe, 0xef]), {
+      status: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+  }),
+
+  http.get(xrpcRegex('com.atproto.sync.listBlobs'), async ({ request }) => {
+    await captureRequest(request);
+    return xrpcHandler('com.atproto.sync.listBlobs');
   }),
 
   // Phase 2: Lexicon resolution

@@ -14,8 +14,12 @@ import {
   createRecord,
   deleteRecord,
   getRecord,
+  getBlob,
+  listBlobs,
   listRecords,
   putRecord,
+  resolveActorToDid,
+  uploadBlob,
   applyConstValues,
 } from './operations';
 import { createAgent, extractCollectionNsid, searchCollections } from './shared';
@@ -111,8 +115,9 @@ export class Atproto implements INodeType {
     icon: 'file:atproto.svg',
     group: ['transform'],
     version: 1,
-    subtitle: '={{ $parameter["operation"] }}',
-    description: 'CRUD records in any AT Protocol collection',
+    subtitle:
+      '={{ $parameter["operation"] + ": " + $parameter["resource"] }}',
+    description: 'CRUD records and manage blobs in any AT Protocol repo',
     defaults: {
       name: 'AT Protocol',
     },
@@ -127,46 +132,101 @@ export class Atproto implements INodeType {
     ],
     properties: [
       // ------------------------------------------------------------------
-      // Operation
+      // Resource
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Resource',
+        name: 'resource',
+        type: 'options',
+        noDataExpression: true,
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
+        options: [
+          { name: 'Blob', value: 'blob' },
+          { name: 'Record', value: 'record' },
+        ],
+        default: 'record',
+      },
+
+      // ------------------------------------------------------------------
+      // Operation — Record
       // ------------------------------------------------------------------
       {
         displayName: 'Operation',
         name: 'operation',
         type: 'options',
         noDataExpression: true,
+        displayOptions: {
+          show: { resource: ['record'] },
+        },
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
         options: [
           {
-            name: 'Create Record',
+            name: 'Create',
             value: 'createRecord',
             description: 'Create a new record in a collection',
             action: 'Create a record',
           },
           {
-            name: 'Delete Record',
+            name: 'Delete',
             value: 'deleteRecord',
             description: 'Delete a record by collection and record key',
             action: 'Delete a record',
           },
           {
-            name: 'Get Record',
+            name: 'Get',
             value: 'getRecord',
             description: 'Get a record by collection and record key',
             action: 'Get a record',
           },
           {
-            name: 'List Records',
+            name: 'List',
             value: 'listRecords',
             description: 'List records in a collection with pagination',
             action: 'List records',
           },
           {
-            name: 'Put Record',
+            name: 'Put',
             value: 'putRecord',
             description: 'Full-replace a record',
             action: 'Update a record',
           },
         ],
         default: 'createRecord',
+      },
+
+      // ------------------------------------------------------------------
+      // Operation — Blob
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Operation',
+        name: 'operation',
+        type: 'options',
+        noDataExpression: true,
+        displayOptions: {
+          show: { resource: ['blob'] },
+        },
+        // Sorted alphabetically per @n8n/community-nodes lint rule.
+        options: [
+          {
+            name: 'Download',
+            value: 'getBlob',
+            description: 'Download a blob by CID from a repo',
+            action: 'Download a blob',
+          },
+          {
+            name: 'List',
+            value: 'listBlobs',
+            description: 'List blob CIDs in a repo with pagination',
+            action: 'List blobs',
+          },
+          {
+            name: 'Upload',
+            value: 'uploadBlob',
+            description: 'Upload a binary as a blob to the PDS',
+            action: 'Upload a blob',
+          },
+        ],
+        default: 'uploadBlob',
       },
 
       // ------------------------------------------------------------------
@@ -220,7 +280,7 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Repo (for Get/List — optional, defaults to self)
+      // Repo (for Get/List Record + List Blobs — optional, defaults to self)
       // ------------------------------------------------------------------
       {
         displayName: 'Repo (DID or handle)',
@@ -229,13 +289,137 @@ export class Atproto implements INodeType {
         required: false,
         placeholder: 'did:plc:... or user.bsky.social',
         description:
-          'Optional. The DID or handle of the repo. Defaults to the authenticated user. Useful for reading other users\' public records.',
+          'Optional. The DID or handle of the repo. Defaults to the authenticated user. Useful for reading other users\' public records or blobs.',
         displayOptions: {
           show: {
-            operation: ['getRecord', 'listRecords'],
+            operation: ['getRecord', 'listRecords', 'listBlobs'],
           },
         },
         default: '',
+      },
+
+      // ------------------------------------------------------------------
+      // Repo (for Download Blob — required, can be DID or handle)
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Repo (DID or handle)',
+        name: 'repo',
+        type: 'string',
+        required: true,
+        placeholder: 'did:plc:... or user.bsky.social',
+        description: 'The DID or handle of the repo that owns the blob',
+        displayOptions: {
+          show: {
+            operation: ['getBlob'],
+          },
+        },
+        default: '',
+      },
+
+      // ------------------------------------------------------------------
+      // CID (Download Blob only)
+      // ------------------------------------------------------------------
+      {
+        displayName: 'CID',
+        name: 'cid',
+        type: 'string',
+        required: true,
+        placeholder: 'bafkreig...',
+        description: 'The Content Identifier (CID) of the blob to download',
+        displayOptions: {
+          show: {
+            operation: ['getBlob'],
+          },
+        },
+        default: '',
+      },
+
+      // ------------------------------------------------------------------
+      // Binary Property (Upload Blob — input, Download Blob — output)
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Input Binary Property',
+        name: 'binaryPropertyName',
+        type: 'string',
+        required: true,
+        default: 'data',
+        placeholder: 'data',
+        description:
+          'Name of the binary property on the incoming item containing the data to upload',
+        displayOptions: {
+          show: {
+            operation: ['uploadBlob'],
+          },
+        },
+      },
+      {
+        displayName: 'Output Binary Property',
+        name: 'binaryPropertyName',
+        type: 'string',
+        required: true,
+        default: 'data',
+        placeholder: 'data',
+        description:
+          'Name of the binary property to write the downloaded blob to on the output item',
+        displayOptions: {
+          show: {
+            operation: ['getBlob'],
+          },
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Upload Blob — advanced options
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Options',
+        name: 'options',
+        type: 'collection',
+        placeholder: 'Add Option',
+        default: {},
+        displayOptions: {
+          show: {
+            operation: ['uploadBlob'],
+          },
+        },
+        options: [
+          {
+            displayName: 'MIME Type Override',
+            name: 'mimeTypeOverride',
+            type: 'string',
+            default: '',
+            placeholder: 'image/jpeg',
+            description:
+              'Override the MIME type sent to the PDS. Defaults to the binary metadata\'s mimeType, or application/octet-stream if unset.',
+          },
+        ],
+      },
+
+      // ------------------------------------------------------------------
+      // List Blobs — advanced options
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Options',
+        name: 'options',
+        type: 'collection',
+        placeholder: 'Add Option',
+        default: {},
+        displayOptions: {
+          show: {
+            operation: ['listBlobs'],
+          },
+        },
+        options: [
+          {
+            displayName: 'Since (Repo Revision)',
+            name: 'since',
+            type: 'string',
+            default: '',
+            placeholder: '3jzfc...',
+            description:
+              'Only list blobs added after this repo revision. Useful for incremental sync.',
+          },
+        ],
       },
 
       // ------------------------------------------------------------------
@@ -361,7 +545,7 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Limit (List only)
+      // Limit (List Records / List Blobs)
       // ------------------------------------------------------------------
       {
         displayName: 'Limit',
@@ -369,19 +553,19 @@ export class Atproto implements INodeType {
         type: 'number',
         typeOptions: {
           minValue: 1,
-          maxValue: 100,
+          maxValue: 1000,
         },
         displayOptions: {
           show: {
-            operation: ['listRecords'],
+            operation: ['listRecords', 'listBlobs'],
           },
         },
         default: 50,
-        description: 'Maximum number of records to return per page',
+        description: 'Maximum number of items to return per page',
       },
 
       // ------------------------------------------------------------------
-      // Cursor (List only — optional)
+      // Cursor (List Records / List Blobs — optional)
       // ------------------------------------------------------------------
       {
         displayName: 'Cursor',
@@ -390,10 +574,10 @@ export class Atproto implements INodeType {
         required: false,
         placeholder: '...',
         description:
-          'Optional. Cursor for pagination. Pass the cursor from a previous List Records response to get the next page.',
+          'Optional. Cursor for pagination. Pass the cursor from a previous response to get the next page.',
         displayOptions: {
           show: {
-            operation: ['listRecords'],
+            operation: ['listRecords', 'listBlobs'],
           },
         },
         default: '',
@@ -628,6 +812,93 @@ export class Atproto implements INodeType {
               limit,
               ...(cursor ? { cursor } : {}),
               ...(repo ? { repo } : {}),
+            });
+            result = res as unknown as IDataObject;
+            break;
+          }
+
+          case 'uploadBlob': {
+            const binaryPropertyName = this.getNodeParameter(
+              'binaryPropertyName',
+              i,
+            ) as string;
+            const opts = this.getNodeParameter('options', i, {}) as {
+              mimeTypeOverride?: string;
+            };
+
+            const buffer = await this.helpers.getBinaryDataBuffer(
+              i,
+              binaryPropertyName,
+            );
+            if (!buffer) {
+              throw new NodeOperationError(
+                this.getNode(),
+                `Binary property "${binaryPropertyName}" not found on input item`,
+                { itemIndex: i },
+              );
+            }
+
+            const binaryMeta = items[i].binary?.[binaryPropertyName];
+            const mimeType =
+              opts.mimeTypeOverride?.trim() ||
+              binaryMeta?.mimeType ||
+              'application/octet-stream';
+
+            const res = await uploadBlob(agent, {
+              data: buffer,
+              mimeType,
+            });
+            result = res as unknown as IDataObject;
+            break;
+          }
+
+          case 'getBlob': {
+            const repoInput = this.getNodeParameter('repo', i) as string;
+            const cid = this.getNodeParameter('cid', i) as string;
+            const binaryPropertyName = this.getNodeParameter(
+              'binaryPropertyName',
+              i,
+            ) as string;
+
+            const did = await resolveActorToDid(agent, repoInput);
+            const res = await getBlob(agent, { did, cid });
+
+            const binaryData = await this.helpers.prepareBinaryData(
+              res.data,
+              cid,
+              res.mimeType || undefined,
+            );
+
+            returnData.push({
+              json: {
+                cid,
+                did,
+                mimeType: res.mimeType,
+                size: res.size,
+              },
+              binary: { [binaryPropertyName]: binaryData },
+              pairedItem: { item: i },
+            });
+            continue;
+          }
+
+          case 'listBlobs': {
+            const limit = this.getNodeParameter('limit', i) as number;
+            const cursor = this.getNodeParameter('cursor', i) as string;
+            const repoInput = this.getNodeParameter('repo', i) as string;
+            const listOpts = this.getNodeParameter('options', i, {}) as {
+              since?: string;
+            };
+
+            const did = repoInput
+              ? await resolveActorToDid(agent, repoInput)
+              : undefined;
+
+            const res = await listBlobs(agent, {
+              ...(did ? { did } : {}),
+              limit,
+              ...(cursor ? { cursor } : {}),
+              ...(listOpts.since ? { since: listOpts.since } : {}),
             });
             result = res as unknown as IDataObject;
             break;

@@ -88,6 +88,54 @@ export interface ListRecordsResult {
 }
 
 // ---------------------------------------------------------------------------
+// Blob operation params / results
+// ---------------------------------------------------------------------------
+
+export interface UploadBlobParams {
+  data: Buffer;
+  mimeType: string;
+}
+
+export interface UploadBlobResult {
+  blob: {
+    $type: 'blob';
+    ref: { $link: string };
+    mimeType: string;
+    size: number;
+  };
+}
+
+export interface GetBlobParams {
+  /** DID of the account that owns the blob. */
+  did: string;
+  /** CID of the blob to fetch. */
+  cid: string;
+}
+
+export interface GetBlobResult {
+  /** Raw blob bytes. */
+  data: Buffer;
+  /** MIME type reported by the server (from Content-Type), or empty string. */
+  mimeType: string;
+  /** Size of the returned buffer in bytes. */
+  size: number;
+}
+
+export interface ListBlobsParams {
+  /** DID of the repo to list blobs for. Defaults to authenticated user. */
+  did?: string;
+  cursor?: string;
+  limit?: number;
+  /** Optional repo revision — list only blobs added since this rev. */
+  since?: string;
+}
+
+export interface ListBlobsResult {
+  cids: string[];
+  cursor?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -119,6 +167,21 @@ function getOwnDid(agent: Agent): string {
     throw new Error('Not authenticated — no DID available');
   }
   return did;
+}
+
+/**
+ * Resolve a handle to a DID if needed. Returns DIDs unchanged.
+ * Strips a leading `@` from handles. Trims whitespace.
+ */
+async function resolveActorToDid(
+  agent: Agent,
+  actor: string,
+): Promise<string> {
+  const trimmed = actor.trim();
+  if (trimmed.startsWith('did:')) return trimmed;
+  const handle = trimmed.startsWith('@') ? trimmed.slice(1) : trimmed;
+  const res = await agent.com.atproto.identity.resolveHandle({ handle });
+  return res.data.did;
 }
 
 // ---------------------------------------------------------------------------
@@ -277,3 +340,96 @@ export async function listRecords(
     cursor: data.cursor,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Blob operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload a blob to the authenticated user's PDS.
+ *
+ * Returns the blob reference in the canonical AT Protocol shape, ready to
+ * embed in a record:
+ *
+ *   { "$type": "blob", "ref": { "$link": "bafkrei..." }, "mimeType": "image/jpeg", "size": 12345 }
+ *
+ * The PDS may reject blobs over a service-defined size limit (commonly
+ * ~1 MB on bsky.social). The error is propagated unchanged so the caller
+ * can surface it to the user.
+ */
+export async function uploadBlob(
+  agent: Agent,
+  params: UploadBlobParams,
+): Promise<UploadBlobResult> {
+  const response = await agent.com.atproto.repo.uploadBlob(params.data, {
+    encoding: params.mimeType,
+  });
+
+  // BlobRef serializes to the on-the-wire JSON shape via toJSON();
+  // calling it explicitly gives us a plain object that's safe to return
+  // through n8n's data pipeline.
+  const ref = response.data.blob as unknown as { toJSON?: () => unknown };
+  const serialized =
+    typeof ref.toJSON === 'function'
+      ? (ref.toJSON() as UploadBlobResult['blob'])
+      : (response.data.blob as unknown as UploadBlobResult['blob']);
+
+  return { blob: serialized };
+}
+
+/**
+ * Download a blob by CID from a given repo.
+ *
+ * `did` is required by the XRPC method and must be a DID (callers should
+ * resolve handles upfront). Returns the raw bytes plus the server-reported
+ * MIME type (read from the response headers).
+ */
+export async function getBlob(
+  agent: Agent,
+  params: GetBlobParams,
+): Promise<GetBlobResult> {
+  const response = await agent.com.atproto.sync.getBlob({
+    did: params.did,
+    cid: params.cid,
+  });
+
+  // response.data is a Uint8Array — convert to Buffer for n8n's binary helpers.
+  const buffer = Buffer.from(response.data);
+  const mimeType =
+    (response.headers as Record<string, string> | undefined)?.['content-type'] ??
+    '';
+
+  return {
+    data: buffer,
+    mimeType,
+    size: buffer.length,
+  };
+}
+
+/**
+ * List blob CIDs in a repo. Paginated; pass `cursor` from a previous response
+ * to fetch the next page. `since` filters to blobs added after a given repo
+ * revision (rev) — useful for incremental sync.
+ *
+ * `did` defaults to the authenticated user.
+ */
+export async function listBlobs(
+  agent: Agent,
+  params: ListBlobsParams = {},
+): Promise<ListBlobsResult> {
+  const did = params.did ?? getOwnDid(agent);
+
+  const response = await agent.com.atproto.sync.listBlobs({
+    did,
+    limit: params.limit,
+    cursor: params.cursor,
+    since: params.since,
+  });
+
+  return {
+    cids: response.data.cids,
+    cursor: response.data.cursor,
+  };
+}
+
+export { resolveActorToDid };
