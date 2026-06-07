@@ -30,7 +30,7 @@ import {
 export class Bluesky implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'Bluesky',
-    name: 'bluesky',
+    name: 'atproto-bluesky',
     icon: 'file:bluesky.svg',
     group: ['transform'],
     version: 1,
