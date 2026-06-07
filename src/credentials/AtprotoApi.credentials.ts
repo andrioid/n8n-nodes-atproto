@@ -9,6 +9,8 @@ export class AtprotoApi implements ICredentialType {
 
   displayName = 'AT Protocol API';
 
+  icon = { light: 'file:../nodes/Atproto/atproto.svg', dark: 'file:../nodes/Atproto/atproto.svg' } as const;
+
   documentationUrl =
     'https://atproto.com/guides/account#app-passwords';
 

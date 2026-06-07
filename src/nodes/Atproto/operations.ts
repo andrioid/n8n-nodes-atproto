@@ -10,6 +10,7 @@
  */
 
 import type { Agent } from '@atproto/api';
+import type { LexiconSchema } from './lexicon';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,6 +119,27 @@ function getOwnDid(agent: Agent): string {
     throw new Error('Not authenticated — no DID available');
   }
   return did;
+}
+
+// ---------------------------------------------------------------------------
+// Const injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk schema properties and inject `const` values for any field the user
+ * left empty. This ensures constant fields are always set correctly even if
+ * the readOnly UI is bypassed (e.g. via JSON mode or expressions).
+ */
+export function applyConstValues(
+  record: Record<string, unknown>,
+  schema: LexiconSchema | null,
+): void {
+  if (!schema) return;
+  for (const [name, prop] of Object.entries(schema.properties)) {
+    if (prop.const !== undefined && (record[name] === undefined || record[name] === null || record[name] === '')) {
+      record[name] = prop.const;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

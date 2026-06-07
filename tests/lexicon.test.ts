@@ -12,9 +12,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Agent, CredentialSession } from '@atproto/api';
 
-import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
+import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
 import { server, PDS_URL, CID_1, CID_2, CID_3 } from './setup';
-import { APP_BSKY_FEED_POST, QUERY_NOT_RECORD, INLINE_OBJECT, DEEPLY_NESTED } from './mockLexicons';
+import { APP_BSKY_FEED_POST, QUERY_NOT_RECORD, INLINE_OBJECT, DEEPLY_NESTED, CONSTRAINED_SCHEMA } from './mockLexicons';
 import { setMockResponse, clearMockResponses } from './setup';
 
 let agent: Agent;
@@ -185,5 +185,86 @@ describe('resolveLexiconSchema — deeply nested refs', () => {
     expect(schema).not.toBeNull();
     expect(schema!.properties.level1.type).toBe('ref');
     expect(schema!.properties.level1.ref).toBe('io.example.deep#level1Ref');
+  });
+});
+
+describe('constraint parsing (Phase 5.1)', () => {
+  it('parses all constraint fields from the top-level record schema', () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    expect(schema).not.toBeNull();
+
+    // String with enum + default
+    const vis = schema!.properties.visibility;
+    expect(vis.enum).toEqual(['public', 'private', 'unlisted']);
+    expect(vis.default).toBe('public');
+
+    // Integer with enum
+    const pri = schema!.properties.priority;
+    expect(pri.enum).toEqual([0, 1, 2]);
+
+    // String with knownValues
+    const role = schema!.properties.role;
+    expect(role.knownValues).toHaveLength(5);
+    expect(role.knownValues![0]).toBe('com.example.defs#admin');
+
+    // String with maxLength + maxGraphemes
+    const bio = schema!.properties.bio;
+    expect(bio.maxLength).toBe(2560);
+    expect(bio.maxGraphemes).toBe(256);
+
+    // String with minLength + maxLength + maxGraphemes
+    const dn = schema!.properties.displayName;
+    expect(dn.minLength).toBe(1);
+    expect(dn.maxLength).toBe(640);
+    expect(dn.maxGraphemes).toBe(64);
+
+    // Integer with minimum + maximum
+    const score = schema!.properties.score;
+    expect(score.minimum).toBe(0);
+    expect(score.maximum).toBe(100);
+
+    // Integer with const
+    const ver = schema!.properties.version;
+    expect(ver.const).toBe(1);
+
+    // Boolean with const
+    const locked = schema!.properties.locked;
+    expect(locked.const).toBe(false);
+
+    // Blob with accept + maxSize
+    const avatar = schema!.properties.avatar;
+    expect(avatar.accept).toEqual(['image/png', 'image/jpeg']);
+    expect(avatar.maxSize).toBe(1000000);
+
+    // Array with minLength/maxLength
+    const tags = schema!.properties.tags;
+    expect(tags.minLength).toBe(1);
+    expect(tags.maxLength).toBe(8);
+
+    // Union with closed: true
+    const embed = schema!.properties.embed;
+    expect(embed.closed).toBe(true);
+
+    // Nullable field
+    const nf = schema!.properties.nullableField;
+    expect(nf.nullable).toBe(true);
+  });
+
+  it('propagates constraints through parseInlineProperty for array items', () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    const tags = schema!.properties.tags;
+    expect(tags.items).toBeDefined();
+    expect(tags.items!.maxLength).toBe(640);
+    expect(tags.items!.maxGraphemes).toBe(64);
+  });
+
+  it('propagates constraints through extractObjectDef for ref resolution', () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    expect(schema).not.toBeNull();
+    // The imageEmbed def (resolved via rawDefs) should have its item constraints
+    const imgDef = schema!.rawDefs!['imageEmbed'] as Record<string, unknown>;
+    expect(imgDef).toBeDefined();
+    const imgProps = (imgDef as any).properties;
+    expect(imgProps.alt.maxGraphemes).toBe(300);
   });
 });

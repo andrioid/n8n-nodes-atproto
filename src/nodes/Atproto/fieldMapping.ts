@@ -11,15 +11,28 @@
 
 import type { ResourceMapperField } from 'n8n-workflow';
 import type { Agent } from '@atproto/api';
-import type { LexiconProperty, LexiconSchema, ResolvedRef } from './lexicon';
+import type { LexiconProperty, LexiconSchema } from './lexicon';
 import { resolveLexiconSchema, resolveRefProperties } from './lexicon';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum recursion depth for resolving `ref` types. */
-const MAX_REF_DEPTH = 3;
+/**
+ * Maximum recursion depth for resolving `ref` types in the UI.
+ *
+ * Set to 1 so that top-level refs are flattened into their immediate
+ * properties, but sub-refs within those become single `object` fields
+ * rather than being recursively exploded into many dotted sub-fields.
+ *
+ * This keeps the field count manageable (e.g. a theme with 4 color
+ * refs becomes 4 object fields, not 12+ individual number fields).
+ *
+ * Note: $type injection (typeInjection.ts) and validation (validation.ts)
+ * maintain their own depth limits (3) for full recursive processing
+ * at execution time.
+ */
+const MAX_REF_DEPTH = 1;
 
 /** Field names that should be auto-populated with default expressions. */
 const AUTO_DEFAULTS: Record<string, string> = {
@@ -37,6 +50,8 @@ function lexiconTypeToFieldType(prop: LexiconProperty): string {
   switch (prop.type) {
     case 'string':
       if (prop.format === 'datetime') return 'dateTime';
+      // Note: 'url' is not a valid ResourceMapperField type, so uri/at-uri
+      // stay as 'string' with a format hint in displayName instead.
       return 'string';
     case 'integer':
       return 'number';
@@ -60,6 +75,8 @@ function lexiconTypeToFieldType(prop: LexiconProperty): string {
       return 'string';
     case 'token':
       return 'string';
+    case 'unknown':
+      return 'object';
     default:
       return 'string';
   }
@@ -80,25 +97,6 @@ export function getResolvableRef(prop: LexiconProperty): string | null {
   if (prop.type === 'ref' && prop.ref) return prop.ref;
   if (prop.type === 'union' && prop.refs?.length === 1) return prop.refs[0];
   return null;
-}
-
-/**
- * Detect whether a resolved ref is an RGB(A) color object.
- *
- * Matches objects with exactly {r, g, b} or {r, g, b, a} integer properties
- * — the standard AT Protocol pattern for color values
- * (e.g. `site.standard.theme.color#rgb`).
- */
-function isRgbColorDef(resolved: ResolvedRef): boolean {
-  const keys = Object.keys(resolved.properties);
-  const hasRGB = ['r', 'g', 'b'].every(
-    (k) => resolved.properties[k]?.type === 'integer',
-  );
-  if (!hasRGB) return false;
-  return (
-    keys.length === 3 ||
-    (keys.length === 4 && resolved.properties['a']?.type === 'integer')
-  );
 }
 
 /**
@@ -153,29 +151,6 @@ function formatArrayDisplayName(
     : `${name} (${itemHint})`;
 }
 
-/**
- * Create a single hex-color string field instead of 3–4 separate number
- * fields for RGB(A) color refs.
- */
-function makeColorField(
-  name: string,
-  prop: LexiconProperty,
-  required: boolean,
-): ResourceMapperField {
-  const desc = prop.description?.replace(/\.\s*$/, '');
-  const displayName = desc
-    ? `${name} (${desc} — hex e.g. #3B82F6)`
-    : `${name} (hex color e.g. #3B82F6)`;
-  return {
-    id: name,
-    displayName,
-    required,
-    defaultMatch: false,
-    display: true,
-    type: 'string',
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -228,6 +203,39 @@ async function propToFields(
   agent: Agent | null,
   depth: number,
 ): Promise<ResourceMapperField[]> {
+  // --- const fields: fixed, immutable value → readOnly ---
+  if (prop.const !== undefined) {
+    const fieldType = lexiconTypeToFieldType(prop);
+    const desc = prop.description?.replace(/\.\s*$/, '');
+    return [{
+      id: name,
+      displayName: desc
+        ? `${name} (${desc} — fixed: ${String(prop.const)})`
+        : `${name} (fixed: ${String(prop.const)})`,
+      required,
+      defaultMatch: false,
+      display: true,
+      type: fieldType as ResourceMapperField['type'],
+      readOnly: true,
+      defaultValue: prop.const,
+    }];
+  }
+
+  // --- enum: closed set → options dropdown ---
+  if (prop.enum?.length && (prop.type === 'string' || prop.type === 'integer')) {
+    const desc = prop.description?.replace(/\.\s*$/, '');
+    return [{
+      id: name,
+      displayName: desc ? `${name} (${desc})` : name,
+      required,
+      defaultMatch: name === 'createdAt',
+      display: true,
+      type: 'options' as ResourceMapperField['type'],
+      options: prop.enum.map(v => ({ name: String(v), value: v })),
+      ...(prop.default !== undefined ? { defaultValue: prop.default } : {}),
+    }];
+  }
+
   // --- ref / single-ref union types: attempt recursive flattening ---
   const resolveTarget = getResolvableRef(prop);
   if (resolveTarget && depth < MAX_REF_DEPTH) {
@@ -238,11 +246,6 @@ async function propToFields(
     );
 
     if (resolved !== null && Object.keys(resolved.properties).length > 0) {
-      // RGB color shortcut — single hex string field instead of r/g/b numbers
-      if (isRgbColorDef(resolved)) {
-        return [makeColorField(name, prop, required)];
-      }
-
       // Flatten the resolved properties with a dotted prefix.
       // A sub-field is required iff the parent ref is required AND the
       // resolved schema lists it as required.
@@ -273,6 +276,41 @@ async function propToFields(
     ];
   }
 
+  // --- ref / single-ref union that hit the depth limit: show as object ---
+  // Still resolve the ref to build a JSON template for the default value,
+  // so the user sees the expected structure instead of an empty editor.
+  if (resolveTarget) {
+    const desc = prop.description?.replace(/\.\s*$/, '');
+    let template: string | undefined;
+    try {
+      const resolved = await resolveRefProperties(
+        resolveTarget,
+        parentSchema,
+        (nsid: string) => resolveLexiconSchema(agent, nsid),
+      );
+      if (resolved && Object.keys(resolved.properties).length > 0) {
+        template = JSON.stringify(
+          buildDefaultTemplate(resolved.properties),
+          null,
+          2,
+        );
+      }
+    } catch {
+      // Resolution failed — no template, user gets empty editor
+    }
+    return [
+      {
+        id: name,
+        displayName: desc ? `${name} (${desc})` : name,
+        required,
+        defaultMatch: false,
+        display: true,
+        type: 'object',
+        ...(template ? { defaultValue: template } : {}),
+      },
+    ];
+  }
+
   // --- multi-ref union types: always object (too complex for flattening) ---
   if (prop.type === 'union') {
     const displayName = formatUnionDisplayName(name, prop);
@@ -289,10 +327,9 @@ async function propToFields(
   }
 
   // --- array types ---
+  // Use type: 'array' — n8n's tryToParseArray() accepts JSON array strings.
+  // Using 'object' would fail validation since [] is not a JSON object.
   if (prop.type === 'array') {
-    const itemType = prop.items
-      ? lexiconTypeToFieldType(prop.items)
-      : 'json';
     const displayName = formatArrayDisplayName(name, prop);
     return [
       {
@@ -301,7 +338,8 @@ async function propToFields(
         required,
         defaultMatch: false,
         display: true,
-        type: (itemType === 'json' ? 'object' : itemType) as ResourceMapperField['type'],
+        type: 'array' as ResourceMapperField['type'],
+        defaultValue: '[]',
       },
     ];
   }
@@ -347,12 +385,48 @@ async function propToFields(
     field.displayName = `${name} (${prop.description})`;
   }
 
-  // Apply auto-defaults for known fields
+  // knownValues: open set → show suggestions in displayName
+  if (prop.knownValues?.length) {
+    const shortNames = prop.knownValues.map(v => {
+      const hash = v.indexOf('#');
+      return hash >= 0 ? v.slice(hash + 1) : v.split('.').pop() ?? v;
+    });
+    const hint = shortNames.length <= 4
+      ? shortNames.join(', ')
+      : `${shortNames.slice(0, 3).join(', ')}, …`;
+    const desc = prop.description?.replace(/\.\s*$/, '');
+    field.displayName = desc
+      ? `${name} (${desc} — e.g. ${hint})`
+      : `${name} (e.g. ${hint})`;
+  }
+
+  // String format hints (datetime is already mapped to dateTime type)
+  if (prop.type === 'string' && prop.format && prop.format !== 'datetime') {
+    field.displayName += ` (${prop.format})`;
+  }
+
+  // Constraint hints in displayName
+  const hints: string[] = [];
+  if (prop.maxGraphemes) hints.push(`max ${prop.maxGraphemes} chars`);
+  else if (prop.maxLength && prop.type === 'string') hints.push(`max ${prop.maxLength} bytes`);
+  if (prop.minimum !== undefined || prop.maximum !== undefined) {
+    const parts: string[] = [];
+    if (prop.minimum !== undefined) parts.push(`≥${prop.minimum}`);
+    if (prop.maximum !== undefined) parts.push(`≤${prop.maximum}`);
+    hints.push(parts.join(', '));
+  }
+  if (hints.length) {
+    field.displayName += ` [${hints.join('; ')}]`;
+  }
+
+  // Apply auto-defaults for known fields, then schema defaults
   if (AUTO_DEFAULTS[name] !== undefined) {
     field.defaultValue = AUTO_DEFAULTS[name];
     if (name === 'createdAt') {
       field.defaultMatch = true;
     }
+  } else if (prop.default !== undefined) {
+    field.defaultValue = prop.default;
   }
 
   return [field];
@@ -393,15 +467,9 @@ async function flattenRefProperties(
       const resolved = await resolveRefProperties(
         nestedRef,
         parentSchema,
-        (nsid: string) => resolveLexiconSchema(agent, nsid),
+        (nsid) => resolveLexiconSchema(agent, nsid),
       );
       if (resolved !== null && Object.keys(resolved.properties).length > 0) {
-        // RGB color shortcut — single hex string field instead of r/g/b numbers
-        if (isRgbColorDef(resolved)) {
-          fields.push(makeColorField(dotted, prop, isRequired));
-          continue;
-        }
-
         const nested = await flattenRefProperties(
           dotted,
           resolved.properties,
@@ -416,20 +484,66 @@ async function flattenRefProperties(
       }
     }
 
-    // For simple types or when refs can't be resolved further
-    const fieldType = lexiconTypeToFieldType(prop);
-    const displayName = prop.description
-      ? `${dotted} (${prop.description})`
-      : dotted;
-    fields.push({
-      id: dotted,
-      displayName,
-      required: isRequired,
-      defaultMatch: false,
-      display: true,
-      type: (fieldType === 'json' ? 'object' : fieldType) as ResourceMapperField['type'],
-    });
+    // For simple types or when refs can't be resolved further,
+    // route through propToFields so the field gets all Phase 5 treatment
+    // (defaults, enums, format hints, constraint hints).
+    const subFields = await propToFields(
+      dotted,
+      prop,
+      isRequired,
+      parentSchema,
+      agent,
+      depth,
+    );
+    fields.push(...subFields);
   }
 
   return fields;
+}
+
+// ---------------------------------------------------------------------------
+// Default template generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a JSON-serialisable default template from resolved schema properties.
+ *
+ * Used for object-type fields where the ref was resolved (for schema info)
+ * but not flattened (due to depth limit). The template shows the expected
+ * structure so the user isn't staring at an empty editor.
+ *
+ * E.g. for a color ref: `{ "r": 0, "g": 0, "b": 0 }`
+ * E.g. for a strongRef:  `{ "uri": "", "cid": "" }`
+ */
+function buildDefaultTemplate(
+  properties: Record<string, LexiconProperty>,
+): Record<string, unknown> {
+  const template: Record<string, unknown> = {};
+  for (const [name, prop] of Object.entries(properties)) {
+    template[name] = defaultForPropType(prop);
+  }
+  return template;
+}
+
+/** Derive a sensible default value for a single property. */
+function defaultForPropType(prop: LexiconProperty): unknown {
+  if (prop.default !== undefined) return prop.default;
+  if (prop.const !== undefined) return prop.const;
+  switch (prop.type) {
+    case 'string':
+      return '';
+    case 'integer':
+      return prop.minimum ?? 0;
+    case 'boolean':
+      return false;
+    case 'array':
+      return [];
+    case 'object':
+      if (prop.properties) {
+        return buildDefaultTemplate(prop.properties);
+      }
+      return {};
+    default:
+      return null;
+  }
 }

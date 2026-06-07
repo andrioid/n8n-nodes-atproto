@@ -67,9 +67,30 @@ export async function applyBlobUploads(
       continue;
     }
 
+    // Pre-upload validation: check accept + maxSize before uploading
+    const items = executeFunctions.getInputData();
+    const item = items[itemIndex];
+    const binaryMeta = item?.binary?.[value];
+
+    if (propDef.accept?.length) {
+      const mimeType = binaryMeta?.mimeType ?? 'application/octet-stream';
+      const accepted = propDef.accept.some(pattern => {
+        if (pattern === '*/*') return true;
+        if (pattern.endsWith('/*'))
+          return mimeType.startsWith(pattern.slice(0, -1));
+        return mimeType === pattern;
+      });
+      if (!accepted) {
+        throw new Error(
+          `'${key}' accepts ${propDef.accept.join(', ')} but got ${mimeType}`,
+        );
+      }
+    }
+
     // Upload the blob and substitute the reference
     result[key] = await uploadBlobFromBinary(
       value,
+      propDef,
       agent,
       itemIndex,
       executeFunctions,
@@ -95,6 +116,7 @@ export async function applyBlobUploads(
  */
 async function uploadBlobFromBinary(
   binaryPropertyName: string,
+  propDef: import('./lexicon').LexiconProperty,
   agent: Agent,
   itemIndex: number,
   executeFunctions: IExecuteFunctions,
@@ -108,6 +130,13 @@ async function uploadBlobFromBinary(
   if (!buffer) {
     throw new Error(
       `Binary property "${binaryPropertyName}" not found on input item`,
+    );
+  }
+
+  // 1b. Check maxSize before uploading (saves bandwidth)
+  if (propDef.maxSize && buffer.length > propDef.maxSize) {
+    throw new Error(
+      `'${binaryPropertyName}' max size is ${propDef.maxSize} bytes, file is ${buffer.length} bytes`,
     );
   }
 

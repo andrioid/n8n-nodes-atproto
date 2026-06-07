@@ -7,14 +7,24 @@
   ],
   "license": "MIT",
   "main": "dist/nodes/Atproto/Atproto.node.js",
+  "author": {
+    "name": "Andri Óskarsson",
+    "url": "https://andri.dk"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrioid/n8n-nodes-atproto.git"
+  },
+  "homepage": "https://github.com/andrioid/n8n-nodes-atproto",
   "scripts": {
-    "postinstall": "node scripts/patch-node-js-exports.mjs",
+    "setup:dev": "node scripts/patch-node-js-exports.mjs",
     "dev": "n8n-node dev",
     "build": "vite build --config vite.config.build.ts",
-    "lint": "oxlint src/",
-    "format": "oxfmt --write src/",
+    "lint": "n8n-node lint",
+    "lint:fix": "n8n-node lint --fix",
     "test": "vitest run",
     "test:watch": "vitest",
+    "prepublishOnly": "npm run build",
     "release": "n8n-node release"
   },
   "files": [
@@ -32,14 +42,15 @@
   "devDependencies": {
     "@atproto/api": "^0.20.6",
     "@atproto/lexicon-resolver": "^0.4.0",
-    "@n8n/eslint-plugin-community-nodes": "latest",
     "@n8n/node-cli": "^0.32.0",
+    "eslint": "^9.29.0",
     "msw": "^2.0.0",
     "n8n-workflow": "^2.16.0",
-    "oxfmt": "latest",
-    "oxlint": "latest",
     "typescript": "^5.0.0",
     "vitest": "latest"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
   },
   "engines": {
     "node": ">=22"

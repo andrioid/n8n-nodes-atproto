@@ -24,7 +24,9 @@ import {
   TYPE_ONLY_COLOR,
   SINGLE_REF_UNION,
   PUBLICATION_WITH_THEME,
+  CONSTRAINED_SCHEMA,
 } from './mockLexicons';
+import { parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
 
 let agent: Agent | null;
 
@@ -136,10 +138,10 @@ describe('complex types', () => {
     const schema = await resolveLexiconSchema(agent, 'app.bsky.feed.post');
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
-    // tags is array of strings → item type is 'string', no 'json' conversion needed
+    // All arrays use type 'array' regardless of item type
     const tagsField = fields.find((f) => f.id === 'tags');
     expect(tagsField).toBeDefined();
-    expect(tagsField!.type).toBe('string');
+    expect(tagsField!.type).toBe('array');
   });
 
   it('flattens ref fields into dotted-path sub-fields', async () => {
@@ -147,25 +149,25 @@ describe('complex types', () => {
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
     // reply is a ref to app.bsky.feed.post#replyRef which has root and parent
-    // root and parent are refs to com.atproto.repo.strongRef
-    // Since we can't resolve external NSIDs in tests, they fall back to 'object'
+    // root and parent are refs to com.atproto.repo.strongRef — at depth 1
+    // they become object fields (sub-refs aren't further flattened)
     const replyRootField = fields.find((f) => f.id === 'reply.root');
     expect(replyRootField).toBeDefined();
     expect(replyRootField!.type).toBe('object');
 
     const replyParentField = fields.find((f) => f.id === 'reply.parent');
     expect(replyParentField).toBeDefined();
+    expect(replyParentField!.type).toBe('object');
   });
 
   it('maps array fields with ref items to object', async () => {
     const schema = await resolveLexiconSchema(agent, 'app.bsky.feed.post');
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
-    // facets is an array of refs (app.bsky.richtext.facet) which can't be
-    // resolved in tests, so the item type becomes 'object' (via 'json' map)
+    // All arrays use type 'array' — n8n validates with tryToParseArray()
     const facetsField = fields.find((f) => f.id === 'facets');
     expect(facetsField).toBeDefined();
-    expect(facetsField!.type).toBe('object');
+    expect(facetsField!.type).toBe('array');
   });
 });
 
@@ -237,9 +239,7 @@ describe('empty schema handling', () => {
 });
 
 describe('single-ref union resolution (F1)', () => {
-  it('collapses RGB color refs into single hex string fields', async () => {
-    // Mock resolves: io.example.theme returns the theme lexicon,
-    // io.example.color returns the type-only color lexicon.
+  it('flattens single-ref union into sub-fields with constraints', async () => {
     setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
       const nsid = (body as Record<string, string>)?.nsid;
       if (nsid === 'io.example.theme') {
@@ -253,30 +253,24 @@ describe('single-ref union resolution (F1)', () => {
 
     const schema = await resolveLexiconSchema(agent, 'io.example.theme');
     expect(schema).not.toBeNull();
-
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
-    // RGB colors should be collapsed into single hex string fields
-    const bg = fields.find((f) => f.id === 'background')!;
-    expect(bg).toBeDefined();
-    expect(bg.type).toBe('string');
-    expect(bg.required).toBe(true);
-    expect(bg.displayName).toContain('#3B82F6');
-    expect(bg.displayName).toContain('Color used for content background');
+    // 2-level chain (theme → color#rgb): color ref resolved at depth 0,
+    // r/g/b are plain integers at depth 1 → individual number fields
+    const bgR = fields.find((f) => f.id === 'background.r')!;
+    expect(bgR).toBeDefined();
+    expect(bgR.type).toBe('number');
+    expect(bgR.required).toBe(true);
+    // Constraint hints from the color schema (≥0, ≤255)
+    expect(bgR.displayName).toContain('≥0');
+    expect(bgR.displayName).toContain('≤255');
 
-    const accent = fields.find((f) => f.id === 'accent')!;
-    expect(accent).toBeDefined();
-    expect(accent.type).toBe('string');
-    expect(accent.displayName).toContain('Color used for links');
-
-    // Should NOT have individual r/g/b sub-fields
-    expect(fields.find((f) => f.id === 'background.r')).toBeUndefined();
-    expect(fields.find((f) => f.id === 'accent.r')).toBeUndefined();
+    const accentG = fields.find((f) => f.id === 'accent.g')!;
+    expect(accentG).toBeDefined();
+    expect(accentG.type).toBe('number');
   });
 
-  it('resolves two levels deep: ref → record → single-ref union → hex color', async () => {
-    // io.example.publication → theme (ref) → io.example.theme (record)
-    //   → background (single-ref union) → io.example.color#rgb (hex collapse)
+  it('resolves two levels deep: ref \u2192 record \u2192 single-ref union \u2192 integer fields', async () => {
     setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
       const nsid = (body as Record<string, string>)?.nsid;
       if (nsid === 'io.example.publication') {
@@ -294,20 +288,18 @@ describe('single-ref union resolution (F1)', () => {
     const schema = await resolveLexiconSchema(agent, 'io.example.publication');
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
-    // name should be a simple string field
     const nameField = fields.find((f) => f.id === 'name')!;
     expect(nameField.type).toBe('string');
     expect(nameField.displayName).toContain('Name of the publication');
 
-    // theme.background / theme.accent should be hex string fields (not r/g/b)
+    // At depth 1, sub-refs become object fields (not further flattened)
     const themeBg = fields.find((f) => f.id === 'theme.background')!;
     expect(themeBg).toBeDefined();
-    expect(themeBg.type).toBe('string');
-    expect(themeBg.displayName).toContain('hex');
+    expect(themeBg.type).toBe('object');
 
     const themeAccent = fields.find((f) => f.id === 'theme.accent')!;
     expect(themeAccent).toBeDefined();
-    expect(themeAccent.type).toBe('string');
+    expect(themeAccent.type).toBe('object');
 
     // Multi-ref union should remain as object (not resolved)
     const labelsField = fields.find((f) => f.id === 'labels')!;
@@ -360,26 +352,226 @@ describe('type-only lexicon resolution (F2)', () => {
   });
 });
 
+describe('enum → options dropdown (Phase 5.2)', () => {
+  it('maps string enum to type options with correct choices', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const vis = fields.find((f) => f.id === 'visibility')!;
+    expect(vis).toBeDefined();
+    expect(vis.type).toBe('options');
+    expect(vis.options).toHaveLength(3);
+    expect(vis.options![0]).toEqual({ name: 'public', value: 'public' });
+    expect(vis.options![1]).toEqual({ name: 'private', value: 'private' });
+    expect(vis.options![2]).toEqual({ name: 'unlisted', value: 'unlisted' });
+  });
+
+  it('maps integer enum to type options', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const pri = fields.find((f) => f.id === 'priority')!;
+    expect(pri).toBeDefined();
+    expect(pri.type).toBe('options');
+    expect(pri.options).toHaveLength(3);
+    expect(pri.options![0]).toEqual({ name: '0', value: 0 });
+  });
+
+  it('sets defaultValue from schema default on enum fields', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const vis = fields.find((f) => f.id === 'visibility')!;
+    expect(vis.defaultValue).toBe('public');
+  });
+});
+
+describe('knownValues → displayName hints (Phase 5.2)', () => {
+  it('shows short names in displayName for knownValues', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const role = fields.find((f) => f.id === 'role')!;
+    expect(role.type).toBe('string');
+    // Should show truncated list (>4 values → first 3 + …)
+    expect(role.displayName).toContain('admin');
+    expect(role.displayName).toContain('moderator');
+    expect(role.displayName).toContain('member');
+    expect(role.displayName).toContain('…');
+  });
+});
+
+describe('default/const → defaultValue/readOnly (Phase 5.3)', () => {
+  it('maps const integer to readOnly with defaultValue', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const ver = fields.find((f) => f.id === 'version')!;
+    expect(ver).toBeDefined();
+    expect(ver.readOnly).toBe(true);
+    expect(ver.defaultValue).toBe(1);
+    expect(ver.displayName).toContain('fixed: 1');
+  });
+
+  it('maps const boolean to readOnly with defaultValue', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const locked = fields.find((f) => f.id === 'locked')!;
+    expect(locked).toBeDefined();
+    expect(locked.readOnly).toBe(true);
+    expect(locked.defaultValue).toBe(false);
+  });
+
+  it('createdAt hardcoded default takes priority over schema default', async () => {
+    const schema = await resolveLexiconSchema(agent, 'app.bsky.feed.post');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const createdAt = fields.find((f) => f.id === 'createdAt')!;
+    expect(createdAt.defaultValue).toBe('={{ $now }}');
+    expect(createdAt.defaultMatch).toBe(true);
+  });
+});
+
+describe('unknown type + format hints (Phase 5.5)', () => {
+  it('maps unknown type to object', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const unk = fields.find((f) => f.id === 'unknown')!;
+    expect(unk).toBeDefined();
+    expect(unk.type).toBe('object');
+  });
+
+  it('maps string with format uri/at-uri to string with format hint', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    // 'url' is not a valid ResourceMapperField type, so uri stays as 'string'
+    const website = fields.find((f) => f.id === 'website')!;
+    expect(website.type).toBe('string');
+    expect(website.displayName).toContain('(uri)');
+
+    const atUri = fields.find((f) => f.id === 'atUri')!;
+    expect(atUri.type).toBe('string');
+    expect(atUri.displayName).toContain('(at-uri)');
+  });
+
+  it('shows format in displayName for non-datetime/uri formats', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    const handle = fields.find((f) => f.id === 'handle')!;
+    expect(handle.type).toBe('string');
+    expect(handle.displayName).toContain('(handle)');
+  });
+
+  it('shows constraint hints in displayName', async () => {
+    setMockResponse('com.atproto.lexicon.resolveLexicon', () => ({
+      cid: CID_1,
+      uri: 'at://did:plc:fake/x/y',
+      schema: CONSTRAINED_SCHEMA,
+    }));
+
+    const schema = await resolveLexiconSchema(agent, 'io.example.constrained');
+    const fields = await lexiconToResourceMapperFields(schema!, agent);
+
+    // maxGraphemes takes priority over maxLength
+    const bio = fields.find((f) => f.id === 'bio')!;
+    expect(bio.displayName).toContain('[max 256 chars]');
+
+    // Integer with min/max range
+    const score = fields.find((f) => f.id === 'score')!;
+    expect(score.displayName).toContain('[≥0, ≤100]');
+  });
+});
+
 describe('description propagation (F3)', () => {
-  it('includes description and hex hint in color field displayName', async () => {
+  it('stops flattening at depth limit — sub-refs become object fields', async () => {
+    // 3-level chain: publication → theme → color#rgb
+    // At depth 1, theme.background (single-ref union) hits the limit
     setMockResponse('com.atproto.lexicon.resolveLexicon', (body) => {
       const nsid = (body as Record<string, string>)?.nsid;
+      if (nsid === 'io.example.publication') {
+        return { cid: CID_1, uri: 'at://did:plc:fake/x/a', schema: PUBLICATION_WITH_THEME };
+      }
       if (nsid === 'io.example.theme') {
-        return { cid: CID_1, uri: 'at://did:plc:fake/x/y', schema: SINGLE_REF_UNION };
+        return { cid: CID_2, uri: 'at://did:plc:fake/x/b', schema: SINGLE_REF_UNION };
       }
       if (nsid === 'io.example.color') {
-        return { cid: CID_2, uri: 'at://did:plc:fake/x/z', schema: TYPE_ONLY_COLOR };
+        return { cid: CID_3, uri: 'at://did:plc:fake/x/c', schema: TYPE_ONLY_COLOR };
       }
       throw Object.assign(new Error('not found'), { status: 404 });
     });
 
-    const schema = await resolveLexiconSchema(agent, 'io.example.theme');
+    const schema = await resolveLexiconSchema(agent, 'io.example.publication');
     const fields = await lexiconToResourceMapperFields(schema!, agent);
 
-    const bg = fields.find((f) => f.id === 'background')!;
-    // Should have both the description and hex hint
-    expect(bg.displayName).toContain('Color used for content background');
-    expect(bg.displayName).toContain('#3B82F6');
+    // theme.background at depth 1 is a sub-ref — becomes object field with template
+    const themeBg = fields.find((f) => f.id === 'theme.background')!;
+    expect(themeBg.type).toBe('object');
+    expect(themeBg.displayName).toContain('Color used for content background');
+    // Default template shows the expected structure
+    expect(themeBg.defaultValue).toBeDefined();
+    const bgTemplate = JSON.parse(themeBg.defaultValue as string);
+    expect(bgTemplate).toEqual({ r: 0, g: 0, b: 0 });
+
+    // Should NOT have deeply flattened theme.background.r
+    expect(fields.find((f) => f.id === 'theme.background.r')).toBeUndefined();
   });
 
   it('shows description on fallback object fields when resolution fails', async () => {

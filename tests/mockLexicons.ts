@@ -252,6 +252,141 @@ export const PUBLICATION_WITH_THEME = {
   },
 };
 
+/**
+ * Lexicon with every constraint type for Phase 5 testing.
+ *
+ * Covers: enum, knownValues, default, const, minimum/maximum,
+ * minLength/maxLength, minGraphemes/maxGraphemes, blob accept/maxSize,
+ * closed union, array length constraints, nullable fields.
+ */
+export const CONSTRAINED_SCHEMA = {
+  $type: 'com.atproto.lexicon.schema',
+  lexicon: 1,
+  id: 'io.example.constrained',
+  defs: {
+    main: {
+      type: 'record',
+      key: 'tid',
+      record: {
+        type: 'object',
+        properties: {
+          visibility: {
+            type: 'string',
+            enum: ['public', 'private', 'unlisted'],
+            default: 'public',
+            description: 'Post visibility',
+          },
+          priority: {
+            type: 'integer',
+            enum: [0, 1, 2],
+            description: 'Priority level',
+          },
+          role: {
+            type: 'string',
+            knownValues: [
+              'com.example.defs#admin',
+              'com.example.defs#moderator',
+              'com.example.defs#member',
+              'com.example.defs#guest',
+              'com.example.defs#bot',
+            ],
+            description: 'User role',
+          },
+          bio: {
+            type: 'string',
+            maxLength: 2560,
+            maxGraphemes: 256,
+            description: 'Profile bio',
+          },
+          displayName: {
+            type: 'string',
+            minLength: 1,
+            maxLength: 640,
+            maxGraphemes: 64,
+            description: 'Display name',
+          },
+          score: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 100,
+            description: 'Score value',
+          },
+          version: {
+            type: 'integer',
+            const: 1,
+            description: 'Schema version',
+          },
+          locked: {
+            type: 'boolean',
+            const: false,
+            description: 'Lock state',
+          },
+          avatar: {
+            type: 'blob',
+            accept: ['image/png', 'image/jpeg'],
+            maxSize: 1000000,
+            description: 'Profile avatar',
+          },
+          tags: {
+            type: 'array',
+            items: { type: 'string', maxLength: 640, maxGraphemes: 64 },
+            minLength: 1,
+            maxLength: 8,
+            description: 'Content tags',
+          },
+          embed: {
+            type: 'union',
+            closed: true,
+            refs: ['io.example.constrained#imageEmbed', 'io.example.constrained#linkEmbed'],
+            description: 'Embedded content',
+          },
+          handle: {
+            type: 'string',
+            format: 'handle',
+            description: 'AT Protocol handle',
+          },
+          website: {
+            type: 'string',
+            format: 'uri',
+            description: 'Website URL',
+          },
+          atUri: {
+            type: 'string',
+            format: 'at-uri',
+            description: 'AT URI reference',
+          },
+          unknown: {
+            type: 'unknown',
+            description: 'Arbitrary JSON object',
+          },
+          nullableField: {
+            type: 'string',
+            description: 'A nullable string',
+          },
+        },
+        required: ['visibility', 'score', 'version', 'nullableField'],
+        nullable: ['nullableField'],
+      },
+    },
+    imageEmbed: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: { type: 'string', format: 'uri' },
+        alt: { type: 'string', maxGraphemes: 300 },
+      },
+    },
+    linkEmbed: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: { type: 'string', format: 'uri' },
+        title: { type: 'string' },
+      },
+    },
+  },
+};
+
 /** A lexicon that demonstrates a deeply nested ref chain. */
 export const DEEPLY_NESTED = {
   $type: 'com.atproto.lexicon.schema',

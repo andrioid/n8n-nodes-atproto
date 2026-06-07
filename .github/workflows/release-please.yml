@@ -1,0 +1,90 @@
+# Automates versioning and npm publishing via release-please.
+#
+# Flow:
+#   1. Push conventional commits to main (feat:, fix:, chore:, etc.)
+#   2. release-please opens/updates a "Release PR" with version bump + CHANGELOG
+#   3. Merge the PR when ready
+#   4. release-please creates a GitHub Release + git tag
+#   5. The publish job runs: lint, test, build, npm publish --provenance
+#
+# ─── ONE-TIME SETUP ────────────────────────────────────────────────────────────
+#
+# 1. First publish must be done locally (package doesn't exist on npm yet):
+#      npm run build && npm publish --access public
+#
+# 2. Then configure trusted publishing on npmjs.com:
+#      Package settings → Trusted Publishers → Add:
+#        Owner:    andrioid
+#        Repo:     n8n-nodes-atproto
+#        Workflow: release-please.yml
+#        Environment: (leave blank)
+#
+#    Or set NPM_TOKEN as a GitHub repo secret (fallback).
+#
+# 3. Add a GitHub fine-grained PAT as RELEASE_PLEASE_TOKEN repo secret
+#    with contents:write and pull-requests:write permissions.
+#    (The default GITHUB_TOKEN can't trigger other workflows.)
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: node
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Patch uint8arrays for build
+        run: npm run setup:dev
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        run: |
+          [ -n "$NPM_TOKEN" ] && npm config set //registry.npmjs.org/:_authToken "$NPM_TOKEN"
+          npm publish --provenance --access public
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

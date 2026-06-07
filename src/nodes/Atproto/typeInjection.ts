@@ -18,6 +18,9 @@
  *                "background": { "$type": "site.standard.theme.color#rgb",
  *                                "r": 255, "g": 255, "b": 255 } } }
  *
+ * No special-casing for any value types — only plain objects get $type
+ * injected. Strings, numbers, arrays, etc. pass through unchanged.
+ *
  * APPROACH
  * -------
  * A new `injectNestedTypes()` function walks the unflattened record
@@ -61,36 +64,6 @@ import { getResolvableRef } from './fieldMapping';
 
 const MAX_REF_DEPTH = 3;
 
-// ---------------------------------------------------------------------------
-// Hex color helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a hex color string into RGB channel values.
- *
- * Accepts `#RGB`, `#RRGGBB`, `RGB`, `RRGGBB` (case-insensitive).
- * Returns `null` for anything that doesn't look like a hex color.
- */
-function parseHexColor(
-  value: string,
-): { r: number; g: number; b: number } | null {
-  let hex = value.trim();
-  if (hex.startsWith('#')) hex = hex.slice(1);
-
-  // Expand shorthand: #RGB → RRGGBB
-  if (hex.length === 3) {
-    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-  }
-
-  if (hex.length !== 6 || !/^[0-9a-f]{6}$/i.test(hex)) return null;
-
-  return {
-    r: parseInt(hex.slice(0, 2), 16),
-    g: parseInt(hex.slice(2, 4), 16),
-    b: parseInt(hex.slice(4, 6), 16),
-  };
-}
-
 /**
  * Walk a record and inject `$type` on nested objects that correspond to
  * resolved refs or single-ref unions in the lexicon schema.
@@ -130,15 +103,6 @@ async function walkAndInject(
 
     const refTarget = getResolvableRef(propDef);
     if (!refTarget) continue;
-
-    // Hex color expansion: "#3B82F6" → { $type, r, g, b }
-    if (typeof value === 'string') {
-      const rgb = parseHexColor(value);
-      if (rgb) {
-        result[key] = { '$type': refTarget, ...rgb };
-      }
-      continue;
-    }
 
     // Only process plain objects (not arrays, primitives, null)
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {

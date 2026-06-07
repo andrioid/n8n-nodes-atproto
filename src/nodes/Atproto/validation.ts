@@ -68,6 +68,9 @@ async function walkAndValidate(
     if (AUTO_INJECTED.has(name)) continue;
     const path = prefix ? `${prefix}.${name}` : name;
     const value = obj[name];
+    const prop = properties[name];
+    // Nullable required fields accept explicit null
+    if (value === null && prop?.nullable) continue;
     if (value === undefined || value === null || value === '') {
       errors.push(`Required field '${path}' is missing`);
     }
@@ -130,13 +133,49 @@ function checkType(
     case 'string':
       if (typeof value !== 'string') {
         errors.push(`'${path}' must be a string, got ${describeType(value)}`);
+        break;
       }
+      // UTF-8 byte length constraints
+      if (prop.maxLength) {
+        const byteLen = Buffer.byteLength(value, 'utf8');
+        if (byteLen > prop.maxLength)
+          errors.push(`'${path}' is ${byteLen} bytes (max ${prop.maxLength})`);
+      }
+      if (prop.minLength) {
+        const byteLen = Buffer.byteLength(value, 'utf8');
+        if (byteLen < prop.minLength)
+          errors.push(`'${path}' is ${byteLen} bytes (min ${prop.minLength})`);
+      }
+      // Grapheme count (Intl.Segmenter, Node 16+)
+      if (prop.maxGraphemes || prop.minGraphemes) {
+        const segmenter = new Intl.Segmenter();
+        const count = [...segmenter.segment(value)].length;
+        if (prop.maxGraphemes && count > prop.maxGraphemes)
+          errors.push(`'${path}' has ${count} graphemes (max ${prop.maxGraphemes})`);
+        if (prop.minGraphemes && count < prop.minGraphemes)
+          errors.push(`'${path}' has ${count} graphemes (min ${prop.minGraphemes})`);
+      }
+      // Closed enum
+      if (prop.enum?.length && !prop.enum.includes(value))
+        errors.push(`'${path}' must be one of: ${prop.enum.join(', ')}`);
+      // Const
+      if (prop.const !== undefined && value !== prop.const)
+        errors.push(`'${path}' must be '${prop.const}'`);
       break;
 
     case 'integer':
       if (typeof value !== 'number' || !Number.isInteger(value)) {
         errors.push(`'${path}' must be an integer, got ${describeType(value)}`);
+        break;
       }
+      if (prop.minimum !== undefined && value < prop.minimum)
+        errors.push(`'${path}' must be ≥ ${prop.minimum}, got ${value}`);
+      if (prop.maximum !== undefined && value > prop.maximum)
+        errors.push(`'${path}' must be ≤ ${prop.maximum}, got ${value}`);
+      if (prop.enum?.length && !prop.enum.includes(value))
+        errors.push(`'${path}' must be one of: ${prop.enum.join(', ')}`);
+      if (prop.const !== undefined && value !== prop.const)
+        errors.push(`'${path}' must be ${prop.const}`);
       break;
 
     case 'boolean':
@@ -144,7 +183,10 @@ function checkType(
         errors.push(
           `'${path}' must be true or false, got ${describeType(value)}`,
         );
+        break;
       }
+      if (prop.const !== undefined && value !== prop.const)
+        errors.push(`'${path}' must be ${prop.const}`);
       break;
 
     case 'array':
@@ -152,6 +194,18 @@ function checkType(
         errors.push(
           `'${path}' must be a JSON array, got ${describeType(value)}`,
         );
+        break;
+      }
+      if (prop.maxLength !== undefined && value.length > prop.maxLength)
+        errors.push(`'${path}' has ${value.length} items (max ${prop.maxLength})`);
+      if (prop.minLength !== undefined && value.length < prop.minLength)
+        errors.push(`'${path}' has ${value.length} items (min ${prop.minLength})`);
+      // Array item validation
+      if (prop.items && prop.items.type !== 'unknown') {
+        for (let idx = 0; idx < value.length; idx++) {
+          const itemErrors = checkType(`${path}[${idx}]`, value[idx], prop.items);
+          errors.push(...itemErrors);
+        }
       }
       break;
 
@@ -171,15 +225,23 @@ function checkType(
           obj['$type'] &&
           !prop.refs.includes(obj['$type'] as string)
         ) {
-          errors.push(
-            `'${path}' has invalid $type '${obj['$type']}' — expected one of: ${prop.refs.join(', ')}`,
-          );
+          // Closed unions: explicit error mentioning "closed union"
+          if (prop.closed) {
+            errors.push(
+              `'${path}' has $type '${obj['$type']}' which is not allowed in this closed union (expected: ${prop.refs.join(', ')})`,
+            );
+          } else {
+            errors.push(
+              `'${path}' has invalid $type '${obj['$type']}' — expected one of: ${prop.refs.join(', ')}`,
+            );
+          }
         }
       }
       break;
 
     case 'ref':
     case 'object':
+    case 'unknown':
       if (
         typeof value !== 'object' ||
         value === null ||

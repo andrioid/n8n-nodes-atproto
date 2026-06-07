@@ -13,6 +13,9 @@ import {
   buildRecordFromNodeParams,
   unflattenDottedKeys,
 } from '../src/nodes/Atproto/Atproto.node';
+import { applyConstValues } from '../src/nodes/Atproto/operations';
+import { parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { CONSTRAINED_SCHEMA } from './mockLexicons';
 
 describe('unflattenDottedKeys', () => {
   it('passes through flat keys unchanged', () => {
@@ -60,14 +63,19 @@ describe('unflattenDottedKeys', () => {
     });
   });
 
-  it('skips empty values (null, undefined, empty string)', () => {
+  it('skips undefined and empty string but preserves null', () => {
     const flat = {
       text: 'hi',
       'reply.root': '',
       'reply.parent': null,
       empty: undefined,
     };
-    expect(unflattenDottedKeys(flat)).toEqual({ text: 'hi' });
+    // null is preserved (Decision 26: nullable field support)
+    // undefined and '' are stripped
+    expect(unflattenDottedKeys(flat)).toEqual({
+      text: 'hi',
+      reply: { parent: null },
+    });
   });
 
   it('preserves falsy non-empty values (0, false)', () => {
@@ -180,10 +188,9 @@ describe('buildRecordFromNodeParams', () => {
       });
     });
 
-    it('drops empty optional fields', () => {
-      // The user left several fields blank; we shouldn't send them as
-      // empty strings to the PDS (which would fail lexicon validation
-      // for optional fields with format constraints).
+    it('drops empty strings and undefined but preserves null', () => {
+      // The user left several fields blank; empty strings and undefined
+      // are stripped. Explicit null is preserved for nullable fields.
       const input = {
         mappingMode: 'defineBelow',
         value: {
@@ -193,7 +200,28 @@ describe('buildRecordFromNodeParams', () => {
           embed: null,
         },
       };
-      expect(buildRecordFromNodeParams(input)).toEqual({ text: 'hi' });
+      expect(buildRecordFromNodeParams(input)).toEqual({
+        text: 'hi',
+        embed: null,
+      });
+    });
+  });
+
+  describe('nullable handling', () => {
+    it('preserves null values (not stripped by unflattenDottedKeys)', () => {
+      // unflattenDottedKeys currently strips null. After Phase 5.5,
+      // we stop stripping null to support nullable fields.
+      const input = {
+        mappingMode: 'defineBelow',
+        value: {
+          text: 'hi',
+          nullableField: null,
+        },
+      };
+      const result = buildRecordFromNodeParams(input);
+      expect(result.text).toBe('hi');
+      expect('nullableField' in result).toBe(true);
+      expect(result.nullableField).toBeNull();
     });
   });
 
@@ -207,5 +235,28 @@ describe('buildRecordFromNodeParams', () => {
       expect(buildRecordFromNodeParams(null)).toEqual({});
       expect(buildRecordFromNodeParams(undefined)).toEqual({});
     });
+  });
+});
+
+describe('applyConstValues (Phase 5.3)', () => {
+  it('injects const value when field is missing', () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    const record: Record<string, unknown> = { visibility: 'public', score: 50 };
+    applyConstValues(record, schema);
+    expect(record.version).toBe(1);
+    expect(record.locked).toBe(false);
+  });
+
+  it('preserves user-provided value even for const fields', () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    const record: Record<string, unknown> = { version: 1, score: 50 };
+    applyConstValues(record, schema);
+    expect(record.version).toBe(1);
+  });
+
+  it('does nothing when schema is null', () => {
+    const record: Record<string, unknown> = { text: 'hello' };
+    applyConstValues(record, null);
+    expect(record).toEqual({ text: 'hello' });
   });
 });

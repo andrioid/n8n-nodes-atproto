@@ -8,7 +8,7 @@ import type {
   INodeTypeDescription,
   ResourceMapperFields,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import { Agent, CredentialSession } from '@atproto/api';
 
 import {
@@ -17,6 +17,7 @@ import {
   getRecord,
   listRecords,
   putRecord,
+  applyConstValues,
 } from './operations';
 import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
@@ -143,8 +144,9 @@ export class Atproto implements INodeType {
     defaults: {
       name: 'AT Protocol',
     },
-    inputs: ['main'],
-    outputs: ['main'],
+    usableAsTool: true,
+    inputs: [NodeConnectionTypes.Main],
+    outputs: [NodeConnectionTypes.Main],
     credentials: [
       {
         name: 'atprotoApi',
@@ -168,28 +170,28 @@ export class Atproto implements INodeType {
             action: 'Create a record',
           },
           {
-            name: 'Get Record',
-            value: 'getRecord',
-            description: 'Get a record by collection and record key',
-            action: 'Get a record',
-          },
-          {
-            name: 'Put Record',
-            value: 'putRecord',
-            description: 'Full-replace a record',
-            action: 'Update a record',
-          },
-          {
             name: 'Delete Record',
             value: 'deleteRecord',
             description: 'Delete a record by collection and record key',
             action: 'Delete a record',
           },
           {
+            name: 'Get Record',
+            value: 'getRecord',
+            description: 'Get a record by collection and record key',
+            action: 'Get a record',
+          },
+          {
             name: 'List Records',
             value: 'listRecords',
             description: 'List records in a collection with pagination',
             action: 'List records',
+          },
+          {
+            name: 'Put Record',
+            value: 'putRecord',
+            description: 'Full-replace a record',
+            action: 'Update a record',
           },
         ],
         default: 'createRecord',
@@ -536,8 +538,13 @@ export class Atproto implements INodeType {
             const opts = this.getNodeParameter('options', i, {}) as IDataObject;
             const swapCommit = (opts.swapCommit as string) ?? '';
 
-            // Phase 3: upload blobs referenced by binary property names
+            // Resolve schema once for all downstream steps
             const schema = await resolveLexiconSchema(agent, collection);
+
+            // Phase 5: inject const values from schema
+            applyConstValues(record, schema);
+
+            // Phase 3: upload blobs referenced by binary property names
             const recordWithBlobs = await applyBlobUploads(
               record,
               schema,
@@ -605,8 +612,13 @@ export class Atproto implements INodeType {
             const putOpts = this.getNodeParameter('options', i, {}) as IDataObject;
             const swapCommit = (putOpts.swapCommit as string) ?? '';
 
-            // Phase 3: upload blobs referenced by binary property names
+            // Resolve schema once for all downstream steps
             const schema = await resolveLexiconSchema(agent, collection);
+
+            // Phase 5: inject const values from schema
+            applyConstValues(record, schema);
+
+            // Phase 3: upload blobs referenced by binary property names
             const recordWithBlobs = await applyBlobUploads(
               record,
               schema,
@@ -785,9 +797,10 @@ export function unflattenDottedKeys(
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(flat)) {
-    if (value === null || value === undefined || value === '') {
-      // Skip empty values — the user didn't fill in this field, and we
-      // don't want to send `null`/`""` to the PDS for optional fields.
+    if (value === undefined || value === '') {
+      // Skip empty/undefined values — the user didn't fill in this field.
+      // Preserve `null` for nullable fields (the PDS accepts null when
+      // the schema declares a field as nullable).
       continue;
     }
 

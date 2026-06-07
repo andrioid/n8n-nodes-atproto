@@ -14,9 +14,9 @@ Building a separate n8n node for each lexicon doesn't scale. Building one node t
 
 - **CRUD any AT Protocol record** — create, read, update, delete, and list records in any collection
 - **Dynamic field mapping** — resolves lexicon schemas from the network and presents typed form fields in the n8n editor, so you fill in `title`, `publishedAt`, `tags` rather than crafting raw JSON
-- **Deep schema resolution** — follows `ref` chains, resolves single-ref unions, and handles type-only lexicons (like `site.standard.theme.color#rgb`). Color fields collapse to hex inputs (`#3B82F6`)
+- **Deep schema resolution** — follows `ref` chains, resolves single-ref unions, flattens nested objects, and enforces schema constraints (enums, length limits, required fields)
 - **Smart defaults** — auto-injects `$type` and `createdAt`, auto-resolves literal record keys (e.g. `app.bsky.actor.profile` → `self`), uploads blobs from binary input
-- **Validation before submission** — checks required fields, types, and `$type` discriminators at execution time with clear error messages, before the PDS ever sees the record
+- **Validation before submission** — checks required fields, types, constraints (string length, grapheme count, numeric range, enums), and `$type` discriminators at execution time with clear error messages, before the PDS ever sees the record
 - **Works with any PDS** — Bluesky, self-hosted, Blacksky, or any AT Protocol–compatible server
 
 ## Use Cases
@@ -52,14 +52,14 @@ Or install from the Community Nodes panel in n8n settings.
 2. **Add the node** to a workflow
 3. **Choose an operation** — Create Record, Get Record, etc.
 4. **Pick a collection** — select from the searchable dropdown (lists your repo's collections) or type any NSID manually
-5. **Map your fields** — the node resolves the lexicon and shows you typed form fields. Colors render as hex inputs, blobs explain what to attach, and unions list their valid `$type` options
+5. **Map your fields** — the node resolves the lexicon and shows you typed form fields with constraints, enums as dropdowns, and blob fields that explain what to attach
 6. **Run it** — the node validates your data, injects `$type`/`createdAt`, uploads blobs, and sends the record
 
 ### Tips
 
 - **Profiles and other singleton records** — leave the Record Key empty. The node auto-resolves literal keys (e.g. `app.bsky.actor.profile` uses `self`)
-- **Theme colors** — enter hex values like `#3B82F6`. They're expanded to `{ "$type": "site.standard.theme.color#rgb", "r": 59, "g": 130, "b": 246 }` automatically
 - **Blob fields** — the field label tells you to provide a binary property name. Use an HTTP Request or Read Binary File node upstream to attach the file
+- **Nested objects** — sub-refs beyond the first level show as JSON fields with a template of the expected structure
 
 ## Credentials
 
@@ -77,8 +77,8 @@ The node is deliberately thin — it speaks the AT Protocol and defers everythin
 |------|---------|
 | `Atproto.node.ts` | Node description, collection picker, execute flow |
 | `lexicon.ts` | Schema resolution (PDS endpoint → DNS fallback → null) |
-| `fieldMapping.ts` | Lexicon → n8n ResourceMapperFields (ref flattening, hex colors, descriptions) |
-| `typeInjection.ts` | Nested `$type` injection + hex color expansion at execution time |
+| `fieldMapping.ts` | Lexicon → n8n ResourceMapperFields (ref flattening, enums, constraints) |
+| `typeInjection.ts` | Nested `$type` injection at execution time |
 | `validation.ts` | Pre-submission schema validation with friendly errors |
 | `blob.ts` | Binary upload via `com.atproto.repo.uploadBlob` |
 | `operations.ts` | CRUD wrappers with `$type`/`createdAt` auto-injection |

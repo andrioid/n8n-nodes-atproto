@@ -10,10 +10,10 @@
 | Phase 3 - Blob support | ✅ Done | 11 | `8f468d7` |
 | Distribution - Bundling | ✅ Done | - | `00a4933`, `976ee7e` |
 | Phase 4 - Deep resolution & UX | ✅ Done | 22 | `85beddc`-`b156743` |
-| Phase 5 - Schema constraints | ⏳ Not started | - | - |
+| Phase 5 - Schema constraints | ✅ Done | 35 | - |
 | Distribution - Publish | ⏳ Not started | - | - |
 
-**Current totals:** 125 tests passing, lint clean, build clean (Vite, ~100ms).
+**Current totals:** 160 tests passing, lint clean, build clean (Vite, ~110ms).
 
 ## Decisions Log
 
@@ -23,7 +23,7 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 |---|----------|----------|-----------|
 | 15 | Single-ref unions | Treat as resolvable refs via `getResolvableRef()` helper | Common ATProto pattern (`type: "union", refs: ["one.ref"]`); user sees flattened fields instead of raw JSON |
 | 16 | Type-only lexicons (no main record) | Return defs-only schema `{ properties: {}, rawDefs }` | Enables fragment resolution for cross-document refs like `site.standard.theme.color#rgb` |
-| 17 | RGB color objects | Collapse to single hex string field; expand at execution time | 4 fields instead of 12; hex is universally understood |
+| 17 | ~~RGB color objects~~ | ~~Collapse to single hex string field~~ → **Removed**: no site-specific handling. Refs flatten generically; depth limit (1) prevents field explosion | Generic approach works for all AT Protocol lexicons, not just Standard.site |
 | 18 | Nested `$type` injection | Walk record + schema at execution time; inject before PDS call | Users shouldn't need to know about AT Protocol discriminators |
 | 19 | Collection picker | `resourceLocator` with `describeRepo` list + free-text NSID mode | Users shouldn't need to memorize NSIDs |
 | 20 | Literal record keys | Auto-resolve from schema when rkey is empty | `app.bsky.actor.profile` always uses `self`; users shouldn't need to know |
@@ -49,6 +49,8 @@ All design ambiguities were resolved. Reference these if anything feels unclear 
 | 26 | `nullable` handling | Stop stripping `null` in `unflattenDottedKeys`; only strip `undefined` and `''` | Preserves explicit nulls for nullable fields while still cleaning up empty optional fields |
 | 27 | Constraint displayName hints | Append `[max N chars]` / `[≥min, ≤max]` after description | Users see limits at a glance without needing to look up the lexicon |
 | 28 | Blob `accept`/`maxSize` | Validate before upload, not after | Saves bandwidth + gives immediate clear error instead of deferred PDS rejection |
+| 29 | Ref flattening depth | `MAX_REF_DEPTH = 1` for UI field generation; sub-refs become single `object` fields with JSON template defaults. Execution-time `$type` injection and validation keep their own depth=3 | Prevents field explosion (e.g. themeₒ4 colors×3 channels = 12+ fields). Sub-refs show expected structure via `buildDefaultTemplate()` |
+| 30 | n8n `FieldType` mapping | `array` for arrays (not `object` — `tryToParseObject` rejects `[]`). `string` for `uri`/`at-uri` formats (not `url` — doesn't render editable input in ResourceMapper). `object` only for actual JSON objects | Discovered via n8n source: `type-validation.js` shows each type's parse/validation rules |
 
 ## Tooling
 
@@ -90,10 +92,10 @@ oxfmt                     - format
 
 | Chunk | Raw | Gzipped | Notes |
 |-------|-----|---------|-------|
-| `Atproto.node.js` | 883 KB | 123 KB | Main entry. 91% is `@atproto/api` (barrel exports, not tree-shakeable) |
+| `Atproto.node.js` | 900 KB | 127 KB | Main entry. 91% is `@atproto/api` (barrel exports, not tree-shakeable) |
 | `_chunks/dist.js` | 213 KB | 49 KB | Shared: zod, multiformats, @atproto/syntax |
 | `_chunks/dist2.js` | 1,183 KB | 287 KB | **Lazy-loaded** via `import()` - only when DNS lexicon fallback fires. Contains undici (660 KB) |
-| **Eager total** | **1,096 KB** | **172 KB** | What loads at runtime |
+| **Eager total** | **1,113 KB** | **176 KB** | What loads at runtime |
 
 ---
 
@@ -497,7 +499,15 @@ When lexicon resolution fails:
 
 ---
 
-## Phase 5 — Schema Constraints
+## Phase 5 — Schema Constraints ✅
+
+> Done. 35 new tests. Parses all AT Protocol constraint attributes, maps them to n8n controls (enum→options, const→readOnly, defaults, format/constraint hints in displayName), validates at execution time (string length/graphemes, numeric range, enum/const, array length + item types, blob accept/maxSize, closed unions, nullable). Also: removed all site-specific color/hex handling in favour of generic ref flattening with depth limit; fixed n8n `FieldType` mapping (`array` not `object` for arrays; `string` not `url` for URIs); sub-refs at depth limit get JSON template defaults via `buildDefaultTemplate()`.
+>
+> **Key deviations from original plan:**
+> 1. Removed `isRgbColorDef`/`makeColorField`/`parseHexColor` (decisions 17 revised, 29 added) — no site-specific handling.
+> 2. `MAX_REF_DEPTH` reduced from 3→1 for UI field generation (decision 29) — prevents field explosion.
+> 3. `flattenRefProperties` leaf fields now route through `propToFields()` for full Phase 5 treatment.
+> 4. n8n `FieldType` mapping informed by reading `type-validation.js` source (decision 30).
 
 The node handles the structural skeleton of lexicons (types, refs, unions, arrays, objects, required/optional) but drops nearly all constraint metadata during parsing. The `LexiconProperty` interface captures 9 of ~25 schema attributes defined in the AT Protocol spec. This phase closes the gap in five ordered steps.
 

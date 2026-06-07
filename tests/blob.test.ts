@@ -10,7 +10,8 @@ import { Agent, CredentialSession } from '@atproto/api';
 import type { IExecuteFunctions, INodeExecutionData } from 'n8n-workflow';
 
 import { applyBlobUploads } from '../src/nodes/Atproto/blob';
-import { resolveLexiconSchema, clearLexiconCache } from '../src/nodes/Atproto/lexicon';
+import { resolveLexiconSchema, clearLexiconCache, parseLexiconDoc } from '../src/nodes/Atproto/lexicon';
+import { CONSTRAINED_SCHEMA } from './mockLexicons';
 import {
   server,
   PDS_URL,
@@ -316,6 +317,48 @@ describe('applyBlobUploads', () => {
 
     expect(result).toEqual({});
     expect(uploadedBlobs).toHaveLength(0);
+  });
+
+  it('rejects blob with wrong MIME type vs accept constraint', async () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    // avatar accepts image/png, image/jpeg only
+    const record = { visibility: 'public', score: 50, version: 1, avatar: 'myGif' };
+    const executeFunctions = mockExecuteFunctions({
+      myGif: { data: MOCK_IMAGE_DATA, mimeType: 'image/gif' },
+    });
+
+    await expect(
+      applyBlobUploads(record, schema, agent, 0, executeFunctions),
+    ).rejects.toThrow("'avatar' accepts image/png, image/jpeg but got image/gif");
+    expect(uploadedBlobs).toHaveLength(0); // Should NOT have uploaded
+  });
+
+  it('rejects blob exceeding maxSize', async () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    // avatar has maxSize: 1000000
+    const bigBuffer = Buffer.alloc(1000001);
+    const record = { visibility: 'public', score: 50, version: 1, avatar: 'bigImage' };
+    const executeFunctions = mockExecuteFunctions({
+      bigImage: { data: bigBuffer, mimeType: 'image/png' },
+    });
+
+    await expect(
+      applyBlobUploads(record, schema, agent, 0, executeFunctions),
+    ).rejects.toThrow('max size is 1000000 bytes');
+    expect(uploadedBlobs).toHaveLength(0);
+  });
+
+  it('allows blob with matching MIME and size under limit', async () => {
+    const schema = parseLexiconDoc(CONSTRAINED_SCHEMA, 'io.example.constrained');
+    const record = { visibility: 'public', score: 50, version: 1, avatar: 'goodImage' };
+    const executeFunctions = mockExecuteFunctions({
+      goodImage: { data: MOCK_IMAGE_DATA, mimeType: 'image/png' },
+    });
+
+    const result = await applyBlobUploads(record, schema, agent, 0, executeFunctions);
+    const br = result.avatar as Record<string, unknown>;
+    expect(br.mimeType).toBe('image/png');
+    expect(uploadedBlobs).toHaveLength(1);
   });
 
   it('correctly identifies blob fields from the resolved schema', async () => {

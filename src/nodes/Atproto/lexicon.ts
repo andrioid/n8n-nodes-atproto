@@ -32,6 +32,32 @@ export interface LexiconProperty {
   description?: string;
   /** Whether the field is nullable (from the `nullable` array). */
   nullable?: boolean;
+  // --- Value constraints ---
+  /** Default value for this field. */
+  default?: string | number | boolean;
+  /** Constant value — field must always equal this. */
+  const?: string | number | boolean;
+  /** Closed set of allowed values (dropdown). */
+  enum?: (string | number)[];
+  /** Suggested values (open set — user can type anything). */
+  knownValues?: string[];
+  // --- Numeric range ---
+  minimum?: number;
+  maximum?: number;
+  // --- Length constraints (string: UTF-8 bytes; bytes: raw; array: element count) ---
+  minLength?: number;
+  maxLength?: number;
+  // --- Grapheme constraints (string only) ---
+  minGraphemes?: number;
+  maxGraphemes?: number;
+  // --- Blob constraints ---
+  /** Accepted MIME types for blob fields (e.g. `['image/*']`). */
+  accept?: string[];
+  /** Maximum blob size in bytes. */
+  maxSize?: number;
+  // --- Union flag ---
+  /** When true, the union rejects unknown `$type` values. */
+  closed?: boolean;
 }
 
 /** Parsed record schema extracted from a lexicon document. */
@@ -125,7 +151,6 @@ export async function resolveLexiconSchema(
 
   // Try path B: @atproto/lexicon-resolver (DNS-based, no auth required).
   // Dynamic import to avoid CJS/ESM interop issues at module load time.
-  // eslint-disable-next-line @typescript-eslint/consistent-type-imports
   try {
     const mod: { resolveLexicon: (nsid: string) => Promise<unknown> } =
       // @ts-expect-error Can't resolve package under current moduleResolution
@@ -269,6 +294,19 @@ function extractRecordSchema(
       required: prop.required as string[] | undefined,
       description: prop.description as string | undefined,
       nullable: nullable.includes(name),
+      default: prop.default as string | number | boolean | undefined,
+      const: prop.const as string | number | boolean | undefined,
+      enum: prop.enum as (string | number)[] | undefined,
+      knownValues: prop.knownValues as string[] | undefined,
+      minimum: prop.minimum as number | undefined,
+      maximum: prop.maximum as number | undefined,
+      minLength: prop.minLength as number | undefined,
+      maxLength: prop.maxLength as number | undefined,
+      minGraphemes: prop.minGraphemes as number | undefined,
+      maxGraphemes: prop.maxGraphemes as number | undefined,
+      accept: prop.accept as string[] | undefined,
+      maxSize: prop.maxSize as number | undefined,
+      closed: prop.closed as boolean | undefined,
     };
   }
 
@@ -316,6 +354,19 @@ function parseInlineProperty(
       : undefined,
     required: raw.required as string[] | undefined,
     description: raw.description as string | undefined,
+    default: raw.default as string | number | boolean | undefined,
+    const: raw.const as string | number | boolean | undefined,
+    enum: raw.enum as (string | number)[] | undefined,
+    knownValues: raw.knownValues as string[] | undefined,
+    minimum: raw.minimum as number | undefined,
+    maximum: raw.maximum as number | undefined,
+    minLength: raw.minLength as number | undefined,
+    maxLength: raw.maxLength as number | undefined,
+    minGraphemes: raw.minGraphemes as number | undefined,
+    maxGraphemes: raw.maxGraphemes as number | undefined,
+    accept: raw.accept as string[] | undefined,
+    maxSize: raw.maxSize as number | undefined,
+    closed: raw.closed as boolean | undefined,
   };
 }
 
