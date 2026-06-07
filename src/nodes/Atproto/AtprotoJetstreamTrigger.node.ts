@@ -44,7 +44,11 @@ const PUBLIC_ENDPOINTS = [
 export class AtprotoJetstreamTrigger implements INodeType {
   description: INodeTypeDescription = {
     displayName: 'AT Protocol Jetstream Trigger',
-    name: 'atprotoJetstreamTrigger',
+    // Note: `name` ends in "Trigger" with the action node's name as the prefix
+    // (`atproto` + `Trigger`). n8n's node creator UI groups triggers under their
+    // action by stripping the "Trigger" suffix and matching against action names.
+    // See editor-ui's NodeCreator bundle for the merge logic.
+    name: 'atprotoTrigger',
     icon: 'file:atproto.svg',
     group: ['trigger'],
     version: 1,
