@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-atproto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Generic AT Protocol node for n8n — CRUD any record in any lexicon",
   "keywords": [
     "n8n-community-node-package"
