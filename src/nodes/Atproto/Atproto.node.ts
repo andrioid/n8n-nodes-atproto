@@ -10,6 +10,7 @@ import type {
 import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import type { Agent } from '@atproto/api';
 
+import type { ListRecordsResult } from './operations';
 import {
   createRecord,
   deleteRecord,
@@ -22,6 +23,13 @@ import {
   uploadBlob,
   applyConstValues,
 } from './operations';
+
+// Pagination guardrails for Return All. The page sizes match what each
+// XRPC endpoint accepts as a sensible upper bound; MAX_PAGES caps total
+// requests so a mis-configured workflow can't loop forever.
+const PAGE_SIZE_RECORDS = 100;
+const PAGE_SIZE_BLOBS = 500;
+const MAX_PAGES = 1000;
 import { createAgent, extractCollectionNsid, searchCollections } from './shared';
 import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
@@ -564,7 +572,24 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Limit (List Records / List Blobs)
+      // Return All (List Records / List Blobs)
+      // ------------------------------------------------------------------
+      {
+        displayName: 'Return All',
+        name: 'returnAll',
+        type: 'boolean',
+        default: false,
+        description:
+          'Whether to paginate through all results automatically. When off, returns one page using Limit / Cursor.',
+        displayOptions: {
+          show: {
+            operation: ['listRecords', 'listBlobs'],
+          },
+        },
+      },
+
+      // ------------------------------------------------------------------
+      // Limit (only when Return All is off)
       // ------------------------------------------------------------------
       {
         displayName: 'Limit',
@@ -577,6 +602,7 @@ export class Atproto implements INodeType {
         displayOptions: {
           show: {
             operation: ['listRecords', 'listBlobs'],
+            returnAll: [false],
           },
         },
         default: 50,
@@ -584,7 +610,7 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Cursor (List Records / List Blobs — optional)
+      // Cursor (only when Return All is off)
       // ------------------------------------------------------------------
       {
         displayName: 'Cursor',
@@ -597,6 +623,7 @@ export class Atproto implements INodeType {
         displayOptions: {
           show: {
             operation: ['listRecords', 'listBlobs'],
+            returnAll: [false],
           },
         },
         default: '',
@@ -822,17 +849,40 @@ export class Atproto implements INodeType {
           }
 
           case 'listRecords': {
-            const limit = this.getNodeParameter('limit', i) as number;
-            const cursor = this.getNodeParameter('cursor', i) as string;
+            const returnAll = this.getNodeParameter(
+              'returnAll',
+              i,
+              false,
+            ) as boolean;
             const repo = this.getNodeParameter('repo', i) as string;
 
-            const res = await listRecords(agent, {
-              collection,
-              limit,
-              ...(cursor ? { cursor } : {}),
-              ...(repo ? { repo } : {}),
-            });
-            result = res as unknown as IDataObject;
+            if (returnAll) {
+              // Paginate internally. Concatenate all records across pages.
+              const allRecords: ListRecordsResult['records'] = [];
+              let pageCursor: string | undefined = undefined;
+              for (let page = 0; page < MAX_PAGES; page++) {
+                const pageRes = await listRecords(agent, {
+                  collection,
+                  limit: PAGE_SIZE_RECORDS,
+                  ...(pageCursor ? { cursor: pageCursor } : {}),
+                  ...(repo ? { repo } : {}),
+                });
+                allRecords.push(...pageRes.records);
+                if (!pageRes.cursor) break;
+                pageCursor = pageRes.cursor;
+              }
+              result = { records: allRecords } as unknown as IDataObject;
+            } else {
+              const limit = this.getNodeParameter('limit', i) as number;
+              const cursor = this.getNodeParameter('cursor', i) as string;
+              const res = await listRecords(agent, {
+                collection,
+                limit,
+                ...(cursor ? { cursor } : {}),
+                ...(repo ? { repo } : {}),
+              });
+              result = res as unknown as IDataObject;
+            }
             break;
           }
 
@@ -952,8 +1002,11 @@ export class Atproto implements INodeType {
           }
 
           case 'listBlobs': {
-            const limit = this.getNodeParameter('limit', i) as number;
-            const cursor = this.getNodeParameter('cursor', i) as string;
+            const returnAll = this.getNodeParameter(
+              'returnAll',
+              i,
+              false,
+            ) as boolean;
             const repoInput = this.getNodeParameter('repo', i) as string;
             const listOpts = this.getNodeParameter('options', i, {}) as {
               since?: string;
@@ -963,25 +1016,50 @@ export class Atproto implements INodeType {
               ? await resolveActorToDid(agent, repoInput)
               : agent.did ?? undefined;
 
-            const res = await listBlobs(agent, {
-              ...(did ? { did } : {}),
-              limit,
-              ...(cursor ? { cursor } : {}),
-              ...(listOpts.since ? { since: listOpts.since } : {}),
-            });
-
-            // Emit one output item per CID so downstream Filter/Loop/Set
-            // nodes can iterate naturally. Cursor is attached to every item
-            // so any downstream node can drive the next page.
-            for (const blobCid of res.cids) {
-              returnData.push({
-                json: {
-                  cid: blobCid,
+            if (returnAll) {
+              // Paginate internally; emit one item per CID with no cursor.
+              let pageCursor: string | undefined = undefined;
+              for (let page = 0; page < MAX_PAGES; page++) {
+                const pageRes = await listBlobs(agent, {
                   ...(did ? { did } : {}),
-                  ...(res.cursor ? { cursor: res.cursor } : {}),
-                },
-                pairedItem: { item: i },
+                  limit: PAGE_SIZE_BLOBS,
+                  ...(pageCursor ? { cursor: pageCursor } : {}),
+                  ...(listOpts.since ? { since: listOpts.since } : {}),
+                });
+                for (const blobCid of pageRes.cids) {
+                  returnData.push({
+                    json: {
+                      cid: blobCid,
+                      ...(did ? { did } : {}),
+                    },
+                    pairedItem: { item: i },
+                  });
+                }
+                if (!pageRes.cursor) break;
+                pageCursor = pageRes.cursor;
+              }
+            } else {
+              const limit = this.getNodeParameter('limit', i) as number;
+              const cursor = this.getNodeParameter('cursor', i) as string;
+              const res = await listBlobs(agent, {
+                ...(did ? { did } : {}),
+                limit,
+                ...(cursor ? { cursor } : {}),
+                ...(listOpts.since ? { since: listOpts.since } : {}),
               });
+
+              // One item per CID; cursor attached to each so any downstream
+              // node can drive the next page.
+              for (const blobCid of res.cids) {
+                returnData.push({
+                  json: {
+                    cid: blobCid,
+                    ...(did ? { did } : {}),
+                    ...(res.cursor ? { cursor: res.cursor } : {}),
+                  },
+                  pairedItem: { item: i },
+                });
+              }
             }
             continue;
           }

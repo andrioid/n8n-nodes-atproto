@@ -61,6 +61,83 @@ Or install from the Community Nodes panel in n8n settings.
 - **Blob fields** — the field label tells you to provide a binary property name. Use an HTTP Request or Read Binary File node upstream to attach the file
 - **Nested objects** — sub-refs beyond the first level show as JSON fields with a template of the expected structure
 
+## Recipes
+
+Worked examples of common workflows. Each one is a chain of nodes — names in **bold**, key parameters inline.
+
+### Compose a multi-image Bluesky post
+
+`app.bsky.feed.post` supports up to 4 images, but the blobs live nested inside `embed.images[].image`, so the record's own lexicon doesn't know they're blobs. Use the standalone **Upload Blob** op to upload each image, then compose the embed by hand.
+
+```
+[HTTP Request: image 1]─┐
+[HTTP Request: image 2]─┼─▶[AT Protocol: Blob → Upload] (run once per image, via Loop or three parallel branches)
+[HTTP Request: image 3]─┘
+                          │
+                          ▼
+                  [Aggregate / Set: collect blob refs into `images` array]
+                          │
+                          ▼
+              [AT Protocol: Record → Create]
+                  Collection: app.bsky.feed.post
+                  recordData: {
+                    "text": "three pictures",
+                    "embed": {
+                      "$type": "app.bsky.embed.images",
+                      "images": [
+                        { "alt": "...", "image": {{ $node["Upload 1"].json.blob }} },
+                        { "alt": "...", "image": {{ $node["Upload 2"].json.blob }} },
+                        { "alt": "...", "image": {{ $node["Upload 3"].json.blob }} }
+                      ]
+                    }
+                  }
+```
+
+**Why this works:** `Upload Blob` outputs the canonical BlobRef shape (`{ $type, ref, mimeType, size }`) under `blob`, which is exactly what `embed.images[].image` expects. n8n's expression engine drops the object straight in.
+
+**Convenience fields:** the upload also exposes `cid` / `mimeType` / `size` at the top level, so `{{ $json.cid }}` works without drilling into `blob.ref.$link`.
+
+### Round-trip a blob (download, transform, re-upload)
+
+Mirror a blob from another user's repo into your own. Useful for archival, format conversion, or re-hosting.
+
+```
+[AT Protocol: Record → Get]            ← fetch a post that contains an image
+  Collection: app.bsky.feed.post
+  Repo: alice.bsky.social
+  rkey: 3jzfc...
+        │
+        ▼
+[Set: extract blob ref]                 ← {{ $json.value.embed.images[0].image }}
+        │
+        ▼
+[AT Protocol: Blob → Download]          ← paste the BlobRef into Blob Reference;
+  (no Repo needed if pasting a CDN URL,    Repo = alice.bsky.social for at:// refs
+   otherwise paste the source handle)
+        │
+        ▼
+[Edit Image / Sharp / Compress]         ← optional: re-encode, resize, watermark
+        │
+        ▼
+[AT Protocol: Blob → Upload]            ← now lives in YOUR repo as a fresh blob
+```
+
+**Tip:** `Download Blob` accepts whichever input is most convenient — a bare CID, the BlobRef JSON pasted from a previous op, or a `https://cdn.bsky.app/img/.../<did>/<cid>@jpeg` URL. CDN URLs also fill in the Repo automatically.
+
+### List every blob in your repo
+
+For audits, migrations, or finding orphaned blobs not referenced by any record.
+
+```
+[AT Protocol: Blob → List]
+  Return All: ✅                          ← paginates internally; emits one item per CID
+        │
+        ▼
+[Filter / Set / Aggregate to taste]
+```
+
+Without `Return All`, the node emits one item per CID for the current page and attaches the next-page `cursor` to each item, so manual pagination is also possible.
+
 ## Credentials
 
 | Field | Description |

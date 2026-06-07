@@ -213,6 +213,32 @@ describe('listBlobs', () => {
     expect(result.cids).toEqual([CID_1]);
     expect(result.cursor).toBeUndefined();
   });
+
+  it('supports manual pagination across pages via cursor passthrough', async () => {
+    // First page: full result with cursor; second page: tail with no cursor.
+    let calls = 0;
+    setMockResponse('com.atproto.sync.listBlobs', () => {
+      calls += 1;
+      if (calls === 1) {
+        return { cids: [CID_1, CID_2], cursor: 'page-2' };
+      }
+      return { cids: [CID_3] };
+    });
+
+    const page1 = await listBlobs(agent, { limit: 2 });
+    expect(page1.cids).toEqual([CID_1, CID_2]);
+    expect(page1.cursor).toBe('page-2');
+
+    const page2 = await listBlobs(agent, { limit: 2, cursor: page1.cursor });
+    expect(page2.cids).toEqual([CID_3]);
+    expect(page2.cursor).toBeUndefined();
+
+    // Verify the cursor was actually sent on the second request.
+    const cursorReq = interceptedRequests.filter((r) =>
+      r.url.includes('com.atproto.sync.listBlobs'),
+    );
+    expect(cursorReq[1].url).toContain('cursor=page-2');
+  });
 });
 
 // ---------------------------------------------------------------------------
