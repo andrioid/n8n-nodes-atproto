@@ -103,4 +103,4 @@ Raw Jetstream JSON is restructured for n8n ergonomics:
 - [x] Update `package.json` (`n8n.nodes[]`)
 - [x] Update `src/index.ts` (barrel export)
 - [x] Tests: URL construction, event parsing, filtering, cursor tracking, zstd round-trip
-- [ ] Manual test against live Jetstream instance
+- [x] Manual test against live Jetstream instance
