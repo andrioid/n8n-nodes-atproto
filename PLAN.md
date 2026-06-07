@@ -11,7 +11,7 @@
 | Distribution - Bundling | ✅ Done | - | `00a4933`, `976ee7e` |
 | Phase 4 - Deep resolution & UX | ✅ Done | 22 | `85beddc`-`b156743` |
 | Phase 5 - Schema constraints | ✅ Done | 35 | - |
-| Distribution - Publish | ⏳ Not started | - | - |
+| Distribution - Publish | ✅ Done | - | release-please |
 
 **Current totals:** 160 tests passing, lint clean, build clean (Vite, ~110ms).
 

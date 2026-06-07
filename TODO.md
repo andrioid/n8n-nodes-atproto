@@ -1,95 +1,16 @@
 # TODO
 
-## ✅ Phase 0 — Project Scaffolding
+## ✅ Phase 0–4 — Complete
 
-- [x] Initialize project (inspired by `n8n-nodes-starter`, not cloned)
-- [x] Configure `package.json` with `n8n` node/credential paths, metadata, and scripts
-- [x] Set up `tsconfig.json` (target ES2022, module commonjs, strict)
-- [x] Set up `oxlint.json` with `@n8n/eslint-plugin-community-nodes` via jsPlugins
-- [x] Set up `vitest.config.ts`
-- [x] Add `@atproto/api` + `@atproto/lexicon-resolver` as runtime dependencies
-- [x] Add `oxlint`, `vitest`, `msw`, `typescript`, `@n8n/node-cli` as dev dependencies
-- [x] Create the node icon (AT Protocol logo as `atproto.svg`)
-- [x] Verify scaffold: `npm install`, `npm run build`, `npm run lint`, `npm test` all pass
+Project scaffolding, generic CRUD node (5 operations), dynamic field mapping
+with lexicon resolution, blob upload support, deep schema resolution & UX
+polish. 125 tests passing. See git history for details.
 
-## ✅ Phase 1 — Generic CRUD
+## ✅ Testing (CRUD)
 
-- [x] Credential definition with test block (identifier, appPassword, serviceUrl)
-- [x] TID generation (13-char base32-sortable, top bit 0, 53-bit timestamp, 10-bit clock ID)
-- [x] Node description with all 5 operations (Create, Get, Put, Delete, List Records)
-- [x] CRUD operations with `$type`/`createdAt` auto-injection
-- [x] Execute method with `CredentialSession` + `createAgent` helper
-- [x] Error handling: friendlyError maps XRPC errors to n8n messages
-- [x] Session management: login per execution, auto-refresh within execution
-- [x] Optional `repo` field for Get/List (defaults to authenticated user)
-- [x] Record key: auto TID or custom
-- [x] Swap commit CID for optimistic concurrency
-- [x] Limit + Cursor pagination for List
-- [x] `continueOnFail` support for batch processing
-
-## ✅ Phase 2 — Dynamic Field Mapping
-
-- [x] Lexicon resolution: PDS endpoint (with response body fallback on validation error) → DNS-based resolver → `null`
-- [x] In-memory cache (module-level Map) keyed by NSID
-- [x] Lexicon document parsing: extracts `defs.main.record.properties`, `required`, `nullable`, `key`
-- [x] Lexicon type → n8n FieldType mapping (string, integer→number, boolean, datetime→dateTime, blob, cid-link, bytes, array→object, ref→object)
-- [x] `ResourceMapperField` construction with `id`, `displayName`, `required`, `defaultMatch`, `type`
-- [x] `createdAt` auto-default: `defaultMatch: true`, `defaultValue: '={{ $now }}'`
-- [x] Ref flattening: local refs (`#replyRef`) → dotted-path sub-fields (`reply.root`, `reply.parent`)
-- [x] Recursive ref resolution with depth cap (MAX_REF_DEPTH = 3)
-- [x] Cross-document ref resolution with fragment support (`nsid#fragment`)
-- [x] Inline object flattening with dotted prefix
-- [x] Fallback: when lexicon resolution fails, return empty fields → n8n shows raw JSON editor
-- [x] `resourceMapper` property wired into node description for Create/Put
-- [x] `methods.resourceMapping.getRecordFields` implementation
-- [x] `buildRecordFromNodeParams` helper: handles both resourceMapper and raw JSON formats
-- [x] Test mock lexicons: `APP_BSKY_FEED_POST`, `PRIMITIVE_ONLY`, `QUERY_NOT_RECORD`, `INLINE_OBJECT`, `DEEPLY_NESTED`
-- [x] Mock XRPC server updated with `com.atproto.lexicon.resolveLexicon` handler
-- [x] Tests: `tests/lexicon.test.ts` (11 tests)
-- [x] Tests: `tests/fieldMapping.test.ts` (15 tests)
-- [x] Tests: `tests/recursiveRef.test.ts` (8 tests)
-
-## ✅ Phase 3 — Blob Support
-
-- [x] As a user, I can attach a binary property to a blob field and the node uploads it via `uploadBlob` automatically
-- [x] As a user, the uploaded blob reference is injected into the record in the correct format
-
-## ✅ Phase 4 — Deep Schema Resolution & UX
-
-- [x] Single-ref unions resolved like refs (common ATProto pattern)
-- [x] Type-only lexicons return defs-only schemas for cross-document fragment resolution
-- [x] RGB color refs collapsed to hex string fields (`#3B82F6`)
-- [x] Hex colors expanded to `{ $type, r, g, b }` at execution time
-- [x] Nested `$type` injection on ref/union objects via `injectNestedTypes`
-- [x] Descriptions propagated to flattened ref/union fields
-- [x] Collection NSID → resourceLocator with searchable list (describeRepo)
-- [x] Subtitle showing current operation on canvas
-- [x] Swap Commit moved into Options collection
-- [x] Blob fields show binary property name hint
-- [x] Literal record keys auto-resolve when rkey left empty
-- [x] Multi-ref unions show valid `$type` options in field label
-- [x] Array fields show item type hint in field label
-- [x] Execution-time schema validation with friendly error messages
-
-## Testing
-
-- [x] Unit tests for TID generation (valid format, uniqueness, sortability)
-- [x] Unit tests for `$type` auto-injection + hex color expansion
-- [x] Unit tests for request construction (correct XRPC endpoint, auth headers, body shape)
-- [x] Unit tests for error handling paths (401, 429, not found, malformed response)
-- [x] Unit tests for lexicon schema → ResourceMapperField mapping
-- [x] Unit tests for recursive ref resolution
-- [x] Unit tests for single-ref union resolution + type-only lexicons
-- [x] Unit tests for schema validation (required fields, types, $type, blobs)
-- [x] Mock XRPC server setup (msw) for all automated tests
-- [x] 125 tests passing
+- [x] 125 tests passing (TID, operations, errors, lexicon, field mapping, refs, validation)
 - [ ] Manual testing against real Bluesky PDS during development
 - [ ] Docker-based integration tests deferred
-
-## Session Management
-
-- [x] Call `session.login()` on every execution (simple + reliable)
-- [x] Rely on `CredentialSession` auto-refresh within a single execution for long-running batches
 
 ## Distribution
 
@@ -97,3 +18,89 @@
 - [ ] Publish to npm as a community node package
 - [ ] Add install-from-community-nodes instructions to README
 - [ ] Submit for n8n community node verification
+
+## Phase 5 — Jetstream Trigger
+
+Subscribe to the AT Protocol firehose via [Jetstream](https://github.com/bluesky-social/jetstream)
+and trigger n8n workflows on matching events. Zero new dependencies — uses
+Node 22+ built-in `WebSocket` and `node:zlib` zstd (with Jetstream's custom dictionary).
+
+### Files
+
+Colocated in `src/nodes/Atproto/`:
+
+- `AtprotoJetstream.trigger.ts` — trigger node class
+- `jetstream.ts` — WebSocket client, reconnection, types
+- `zstd_dictionary` — static binary asset (110KB, from Jetstream repo)
+
+Build changes: new entry in `vite.config.build.ts`, copy dictionary in `writeBundle`,
+add to `package.json` `n8n.nodes[]`, barrel export in `index.ts`.
+
+### Node Description
+
+- **displayName**: AT Protocol Jetstream Trigger
+- **name**: `atprotoJetstreamTrigger`
+- **group**: `['trigger']`
+- **icon**: `file:atproto.svg` (shared with CRUD node)
+- **credentials**: `atprotoApi` (required — powers the collection RLC)
+
+### Parameters
+
+| # | Parameter | Type | Notes |
+|---|-----------|------|-------|
+| 1 | Jetstream Endpoint | `options` | 4 public instances + Custom (conditional string) |
+| 2 | Collections | `fixedCollection` of `resourceLocator` | "Add Collection" button. Reuses `searchCollections`. Empty = all |
+| 3 | Wanted DIDs | `fixedCollection` of `string` | "Add DID" button. Optional |
+| 4 | Event Kinds | `multiOptions` | Commits ✓, Identity, Account. Default: commits only |
+| 5 | Operations | `multiOptions` | Create ✓, Update ✓, Delete ✓. Shown when Commits selected |
+| 6 | Compression | `boolean` | Default: true. Lazy-loads zstd dictionary on first use |
+| 7 | Max Message Size | `number` (in Options collection) | Optional, default 0 (no limit) |
+
+### Output Format (flattened)
+
+Raw Jetstream JSON is restructured for n8n ergonomics:
+
+```jsonc
+// Commit events:
+{ "did": "did:plc:...", "timeUs": 1725911162329308, "kind": "commit",
+  "operation": "create", "collection": "app.bsky.feed.post", "rkey": "3l3qo...",
+  "rev": "3l3qo2vutsw2b", "cid": "bafyrei...",
+  "record": { "$type": "app.bsky.feed.post", "text": "...", ... } }
+
+// Identity events:
+{ "did": "did:plc:...", "timeUs": ..., "kind": "identity",
+  "handle": "user.bsky.social", "seq": 1409752997, "time": "..." }
+
+// Account events:
+{ "did": "did:plc:...", "timeUs": ..., "kind": "account",
+  "active": true, "status": "active", "seq": ..., "time": "..." }
+```
+
+### WebSocket Client (`jetstream.ts`)
+
+- Module-level lazy-loaded zstd dictionary (cached forever after first load)
+- Reconnection: exponential backoff (1s → 2s → 4s … cap 30s)
+- Cursor rewind 3s on reconnect for gapless playback
+- `stopped` flag respected by reconnection loop (set by `closeFunction`)
+- Internal types for all 3 event kinds (no external type deps)
+
+### Trigger Lifecycle
+
+1. Read parameters (endpoint, collections, DIDs, kinds, operations, compress)
+2. Load persisted cursor from `getWorkflowStaticData('node')`
+3. If compress=true, lazy-load zstd dictionary
+4. Build WebSocket URL with query params
+5. Connect + listen → decompress → parse → filter by kind/operation → `this.emit()`
+6. `closeFunction`: set stopped, close WS, persist cursor to static data
+7. `manualTriggerFunction`: connect, wait up to ~30s for first matching event, disconnect
+
+### Tasks
+
+- [ ] Copy `zstd_dictionary` from Jetstream repo
+- [ ] Implement `jetstream.ts` (WS client, types, reconnection, decompression)
+- [ ] Implement `AtprotoJetstream.trigger.ts` (node class, parameters, trigger lifecycle)
+- [ ] Update `vite.config.build.ts` (entry point + dictionary copy)
+- [ ] Update `package.json` (`n8n.nodes[]`)
+- [ ] Update `src/index.ts` (barrel export)
+- [ ] Tests: URL construction, event parsing, filtering, cursor tracking, zstd round-trip
+- [ ] Manual test against live Jetstream instance
