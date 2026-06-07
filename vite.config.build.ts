@@ -18,6 +18,7 @@ export default defineConfig({
     lib: {
       entry: {
         'nodes/Atproto/Atproto.node': resolve(__dirname, 'src/nodes/Atproto/Atproto.node.ts'),
+        'nodes/Atproto/AtprotoJetstream.trigger': resolve(__dirname, 'src/nodes/Atproto/AtprotoJetstream.trigger.ts'),
         'credentials/AtprotoApi.credentials': resolve(
           __dirname,
           'src/credentials/AtprotoApi.credentials.ts',
@@ -51,6 +52,7 @@ export default defineConfig({
         // Copy icons and codex JSON files to dist/
         const staticPatterns = [
           { src: 'src/nodes/Atproto/atproto.svg', dest: 'dist/nodes/Atproto/atproto.svg' },
+          { src: 'src/nodes/Atproto/zstd_dictionary', dest: 'dist/nodes/Atproto/zstd_dictionary' },
         ];
         for (const { src, dest } of staticPatterns) {
           mkdirSync(resolve(__dirname, dest, '..'), { recursive: true });

@@ -36,7 +36,8 @@
       "dist/credentials/AtprotoApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/Atproto/Atproto.node.js"
+      "dist/nodes/Atproto/Atproto.node.js",
+      "dist/nodes/Atproto/AtprotoJetstream.trigger.js"
     ]
   },
   "devDependencies": {
@@ -47,7 +48,8 @@
     "msw": "^2.0.0",
     "n8n-workflow": "^2.16.0",
     "typescript": "^5.0.0",
-    "vitest": "latest"
+    "vitest": "latest",
+    "ws": "^8.21.0"
   },
   "peerDependencies": {
     "n8n-workflow": "*"

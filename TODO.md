@@ -96,11 +96,11 @@ Raw Jetstream JSON is restructured for n8n ergonomics:
 
 ### Tasks
 
-- [ ] Copy `zstd_dictionary` from Jetstream repo
-- [ ] Implement `jetstream.ts` (WS client, types, reconnection, decompression)
-- [ ] Implement `AtprotoJetstream.trigger.ts` (node class, parameters, trigger lifecycle)
-- [ ] Update `vite.config.build.ts` (entry point + dictionary copy)
-- [ ] Update `package.json` (`n8n.nodes[]`)
-- [ ] Update `src/index.ts` (barrel export)
-- [ ] Tests: URL construction, event parsing, filtering, cursor tracking, zstd round-trip
+- [x] Copy `zstd_dictionary` from Jetstream repo
+- [x] Implement `jetstream.ts` (WS client, types, reconnection, decompression)
+- [x] Implement `AtprotoJetstream.trigger.ts` (node class, parameters, trigger lifecycle)
+- [x] Update `vite.config.build.ts` (entry point + dictionary copy)
+- [x] Update `package.json` (`n8n.nodes[]`)
+- [x] Update `src/index.ts` (barrel export)
+- [x] Tests: URL construction, event parsing, filtering, cursor tracking, zstd round-trip
 - [ ] Manual test against live Jetstream instance
