@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.1.2...n8n-nodes-atproto-v0.2.0) (2026-06-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* The Bluesky node's internal `name` field changes from `atproto-bluesky` (v0.1.2) to `atprotoBluesky`. Workflows saved against v0.1.2 that reference the Bluesky node will need to re-add the node. The AT Protocol main node and Jetstream trigger are unaffected.
+
+### Features
+
+* **atproto:** blob ops UX improvements ([0b5a912](https://github.com/andrioid/n8n-nodes-atproto/commit/0b5a912c8b93b7d518081a99a9294bec89074a9a))
+* **atproto:** generic blob operations (upload, download, list) ([3ce0eb7](https://github.com/andrioid/n8n-nodes-atproto/commit/3ce0eb7c0a1294b4c10dc0546f41c7b415b659ec))
+* **atproto:** Return All pagination + README recipes ([55d14fc](https://github.com/andrioid/n8n-nodes-atproto/commit/55d14fc2586a814d129c50e29a93fbaa098cc916))
+
+
+### Bug Fixes
+
+* **atproto:** pass default to getNodeParameter('collection') for blob ops ([eb4aa99](https://github.com/andrioid/n8n-nodes-atproto/commit/eb4aa9904d2f80230e1ec8e6751b9591a92b0d19))
+* **bluesky:** rename node to atproto-bluesky to avoid naming conflict ([1d9ba60](https://github.com/andrioid/n8n-nodes-atproto/commit/1d9ba60b3535ca4948f942411090f6775ad31b47))
+* **jetstream:** satisfy both tsc and lint for usableAsTool ([b9d90bf](https://github.com/andrioid/n8n-nodes-atproto/commit/b9d90bf94bd69f9d25db987c1fd94e0ee33df98b))
+
+
+### Code Refactoring
+
+* move sources from src/ to repo root + activate n8n verified ruleset ([e93037b](https://github.com/andrioid/n8n-nodes-atproto/commit/e93037bc9a1881b79827dce5a4dcfcf8661bda8d))
+
 ## [0.1.2](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.1.1...n8n-nodes-atproto-v0.1.2) (2026-06-07)
 
 
