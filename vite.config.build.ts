@@ -18,7 +18,7 @@ export default defineConfig({
     lib: {
       entry: {
         'nodes/Atproto/Atproto.node': resolve(__dirname, 'src/nodes/Atproto/Atproto.node.ts'),
-        'nodes/Atproto/AtprotoJetstream.trigger': resolve(__dirname, 'src/nodes/Atproto/AtprotoJetstream.trigger.ts'),
+        'nodes/Atproto/AtprotoJetstreamTrigger.node': resolve(__dirname, 'src/nodes/Atproto/AtprotoJetstreamTrigger.node.ts'),
         'credentials/AtprotoApi.credentials': resolve(
           __dirname,
           'src/credentials/AtprotoApi.credentials.ts',

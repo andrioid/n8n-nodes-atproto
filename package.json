@@ -37,7 +37,7 @@
     ],
     "nodes": [
       "dist/nodes/Atproto/Atproto.node.js",
-      "dist/nodes/Atproto/AtprotoJetstream.trigger.js"
+      "dist/nodes/Atproto/AtprotoJetstreamTrigger.node.js"
     ]
   },
   "devDependencies": {
