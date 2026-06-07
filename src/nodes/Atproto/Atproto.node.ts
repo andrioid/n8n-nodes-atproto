@@ -27,6 +27,7 @@ import { generateTid } from './tid';
 import { resolveLexiconSchema } from './lexicon';
 import { lexiconToResourceMapperFields } from './fieldMapping';
 import { applyBlobUploads } from './blob';
+import { parseBlobReference } from './blobInput';
 import { injectNestedTypes } from './typeInjection';
 import { validateRecord } from './validation';
 
@@ -55,6 +56,20 @@ function friendlyError(error: unknown, context?: Record<string, string>): string
       ? `${context.collection ?? '?'}/${context.rkey}`
       : context?.collection ?? '?';
     return `Record not found at ${where}`;
+  }
+  if (message.includes('BlobNotFound')) {
+    const where =
+      context?.cid && context?.did
+        ? `${context.did}/${context.cid}`
+        : context?.cid ?? '?';
+    return `Blob not found at ${where}`;
+  }
+  if (
+    status === 413 ||
+    message.includes('PayloadTooLarge') ||
+    /blob too large/i.test(message)
+  ) {
+    return 'Blob too large — the PDS rejected the upload (bsky.social limits blobs to ~1 MB)';
   }
   if (status === 429 || message.includes('RateLimit')) {
     const match = message.match(/retry.*?(\d+)/i);
@@ -299,15 +314,17 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // Repo (for Download Blob — required, can be DID or handle)
+      // Repo (for Download Blob — can be DID or handle; optional when the
+      // CID field is a bsky CDN URL with the DID embedded)
       // ------------------------------------------------------------------
       {
         displayName: 'Repo (DID or handle)',
         name: 'repo',
         type: 'string',
-        required: true,
+        required: false,
         placeholder: 'did:plc:... or user.bsky.social',
-        description: 'The DID or handle of the repo that owns the blob',
+        description:
+          'The DID or handle of the repo that owns the blob. Optional when the CID field is a bsky CDN URL — the DID is extracted from the URL.',
         displayOptions: {
           show: {
             operation: ['getBlob'],
@@ -317,15 +334,17 @@ export class Atproto implements INodeType {
       },
 
       // ------------------------------------------------------------------
-      // CID (Download Blob only)
+      // CID / Blob reference (Download Blob only)
       // ------------------------------------------------------------------
       {
-        displayName: 'CID',
+        displayName: 'Blob Reference',
         name: 'cid',
         type: 'string',
         required: true,
-        placeholder: 'bafkreig...',
-        description: 'The Content Identifier (CID) of the blob to download',
+        placeholder:
+          'bafkreig... or https://cdn.bsky.app/img/.../<did>/<cid>@jpeg',
+        description:
+          'A bare CID, a BlobRef JSON (e.g. `{"$link":"bafkreig..."}`), or a bsky CDN URL. CDN URLs also fill in the Repo.',
         displayOptions: {
           show: {
             operation: ['getBlob'],
@@ -848,37 +867,87 @@ export class Atproto implements INodeType {
               data: buffer,
               mimeType,
             });
-            result = res as unknown as IDataObject;
+            // Flat sibling fields for ergonomic expression access:
+            // `{{ $json.cid }}` instead of `{{ $json.blob.ref.$link }}`.
+            result = {
+              blob: res.blob,
+              cid: res.blob.ref.$link,
+              mimeType: res.blob.mimeType,
+              size: res.blob.size,
+            } as unknown as IDataObject;
             break;
           }
 
           case 'getBlob': {
             const repoInput = this.getNodeParameter('repo', i) as string;
-            const cid = this.getNodeParameter('cid', i) as string;
+            const blobInput = this.getNodeParameter('cid', i) as string;
             const binaryPropertyName = this.getNodeParameter(
               'binaryPropertyName',
               i,
             ) as string;
 
-            const did = await resolveActorToDid(agent, repoInput);
-            const res = await getBlob(agent, { did, cid });
+            // Parse the blob reference (bare CID / JSON ref / CDN URL).
+            // CDN URLs may carry a DID that we use when Repo is empty.
+            let parsed;
+            try {
+              parsed = parseBlobReference(blobInput);
+            } catch (err) {
+              throw new NodeOperationError(
+                this.getNode(),
+                err instanceof Error ? err.message : String(err),
+                { itemIndex: i },
+              );
+            }
+            const { cid } = parsed;
 
-            const binaryData = await this.helpers.prepareBinaryData(
-              res.data,
-              cid,
-              res.mimeType || undefined,
-            );
+            const repoSource = repoInput?.trim() || parsed.did || '';
+            if (!repoSource) {
+              throw new NodeOperationError(
+                this.getNode(),
+                'Repo (DID or handle) is required when the Blob Reference does not contain a DID',
+                { itemIndex: i },
+              );
+            }
+            const did = await resolveActorToDid(agent, repoSource);
 
-            returnData.push({
-              json: {
+            try {
+              const res = await getBlob(agent, { did, cid });
+
+              const binaryData = await this.helpers.prepareBinaryData(
+                res.data,
                 cid,
-                did,
-                mimeType: res.mimeType,
-                size: res.size,
-              },
-              binary: { [binaryPropertyName]: binaryData },
-              pairedItem: { item: i },
-            });
+                res.mimeType || undefined,
+              );
+
+              returnData.push({
+                json: {
+                  cid,
+                  did,
+                  mimeType: res.mimeType,
+                  size: res.size,
+                },
+                binary: { [binaryPropertyName]: binaryData },
+                pairedItem: { item: i },
+              });
+            } catch (err) {
+              // Re-throw with cid/did context so friendlyError can produce
+              // a useful 'Blob not found at <did>/<cid>' message.
+              if (this.continueOnFail()) {
+                returnData.push({
+                  json: {
+                    error: friendlyError(err, { cid, did }),
+                    ...(err instanceof Error ? { message: err.message } : {}),
+                  },
+                  pairedItem: { item: i },
+                });
+                continue;
+              }
+              throw new NodeOperationError(
+                this.getNode(),
+                friendlyError(err, { cid, did }),
+                { itemIndex: i },
+              );
+            }
             continue;
           }
 
@@ -892,7 +961,7 @@ export class Atproto implements INodeType {
 
             const did = repoInput
               ? await resolveActorToDid(agent, repoInput)
-              : undefined;
+              : agent.did ?? undefined;
 
             const res = await listBlobs(agent, {
               ...(did ? { did } : {}),
@@ -900,8 +969,21 @@ export class Atproto implements INodeType {
               ...(cursor ? { cursor } : {}),
               ...(listOpts.since ? { since: listOpts.since } : {}),
             });
-            result = res as unknown as IDataObject;
-            break;
+
+            // Emit one output item per CID so downstream Filter/Loop/Set
+            // nodes can iterate naturally. Cursor is attached to every item
+            // so any downstream node can drive the next page.
+            for (const blobCid of res.cids) {
+              returnData.push({
+                json: {
+                  cid: blobCid,
+                  ...(did ? { did } : {}),
+                  ...(res.cursor ? { cursor: res.cursor } : {}),
+                },
+                pairedItem: { item: i },
+              });
+            }
+            continue;
           }
 
           default:
