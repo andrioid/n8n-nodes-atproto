@@ -1,4 +1,5 @@
 import type {
+  IDataObject,
   INodeProperties,
   INodeType,
   INodeTypeDescription,
@@ -347,7 +348,7 @@ export class AtprotoJetstreamTrigger implements INodeType {
             staticData.cursor = event.timeUs;
           }
 
-          this.emit([[{ json: event, pairedItem: undefined }]]);
+          this.emit([[{ json: event as unknown as IDataObject, pairedItem: undefined }]]);
         },
         onError: (error: Error) => {
           // Non-fatal errors are logged but don't stop the trigger.
@@ -382,7 +383,7 @@ export class AtprotoJetstreamTrigger implements INodeType {
           }
 
           // Emit the event
-          this.emit([[{ json: event, pairedItem: undefined }]]);
+          this.emit([[{ json: event as unknown as IDataObject, pairedItem: undefined }]]);
 
           // Record cursor and stop
           if (event.timeUs) {
