@@ -26,6 +26,10 @@ import {
   replyToPost,
   repostPost,
 } from './operations';
+import {
+  fetchExternalMetadata,
+  fetchThumbnail,
+} from './external';
 
 export class AtprotoBluesky implements INodeType {
   description: INodeTypeDescription = {
@@ -243,13 +247,43 @@ export class AtprotoBluesky implements INodeType {
         },
         options: [
           {
-            displayName: 'Languages',
-            name: 'langs',
-            type: 'string',
-            default: 'en',
-            placeholder: 'en or en,is,fr',
+            displayName: 'Auto-Scrape Link Metadata',
+            name: 'externalAutoScrape',
+            type: 'boolean',
+            default: true,
             description:
-              'Comma-separated BCP-47 language tags for the post. Defaults to en.',
+              'Whether to fetch the page OpenGraph title, description and thumbnail. The item fails if the page cannot be fetched.',
+            displayOptions: {
+              show: {
+                '/operation': ['create'],
+              },
+            },
+          },
+          {
+            displayName: 'External Link URL',
+            name: 'externalUrl',
+            type: 'string',
+            default: '',
+            placeholder: 'https://example.com/article',
+            description:
+              'URL to embed as a link card below the post. Leave empty for no card.',
+            displayOptions: {
+              show: {
+                '/operation': ['create'],
+              },
+            },
+          },
+          {
+            displayName: 'Image Alt Text',
+            name: 'imageAlt',
+            type: 'string',
+            default: '',
+            description: 'Accessibility description of the embedded image',
+            displayOptions: {
+              show: {
+                '/operation': ['create'],
+              },
+            },
           },
           {
             displayName: 'Image Binary Property',
@@ -266,11 +300,47 @@ export class AtprotoBluesky implements INodeType {
             },
           },
           {
-            displayName: 'Image Alt Text',
-            name: 'imageAlt',
+            displayName: 'Languages',
+            name: 'langs',
+            type: 'string',
+            default: 'en',
+            placeholder: 'en or en,is,fr',
+            description:
+              'Comma-separated BCP-47 language tags for the post. Defaults to en.',
+          },
+          {
+            displayName: 'Link Description',
+            name: 'externalDescription',
             type: 'string',
             default: '',
-            description: 'Accessibility description of the embedded image',
+            description:
+              'Card description. Overrides the scraped description when set.',
+            displayOptions: {
+              show: {
+                '/operation': ['create'],
+              },
+            },
+          },
+          {
+            displayName: 'Link Thumbnail Binary Property',
+            name: 'externalThumbBinaryProperty',
+            type: 'string',
+            default: '',
+            placeholder: 'data',
+            description:
+              'Name of a binary property holding a custom card thumbnail. Overrides the scraped image.',
+            displayOptions: {
+              show: {
+                '/operation': ['create'],
+              },
+            },
+          },
+          {
+            displayName: 'Link Title',
+            name: 'externalTitle',
+            type: 'string',
+            default: '',
+            description: 'Card title. Overrides the scraped title when set.',
             displayOptions: {
               show: {
                 '/operation': ['create'],
@@ -306,9 +376,23 @@ export class AtprotoBluesky implements INodeType {
             langs?: string;
             imageBinaryProperty?: string;
             imageAlt?: string;
+            externalUrl?: string;
+            externalAutoScrape?: boolean;
+            externalTitle?: string;
+            externalDescription?: string;
+            externalThumbBinaryProperty?: string;
           };
 
           const langs = parseLangs(options.langs);
+
+          if (options.imageBinaryProperty && options.externalUrl) {
+            throw new NodeOperationError(
+              this.getNode(),
+              'A post can carry either an image embed or an external link card, not both.',
+              { itemIndex: i },
+            );
+          }
+
           let image: { blob: unknown; alt: string } | undefined;
 
           if (options.imageBinaryProperty) {
@@ -329,10 +413,64 @@ export class AtprotoBluesky implements INodeType {
             };
           }
 
+          let external:
+            | { uri: string; title: string; description: string; thumb?: unknown }
+            | undefined;
+
+          if (options.externalUrl) {
+            let title = options.externalTitle ?? '';
+            let description = options.externalDescription ?? '';
+            let imageUrl: string | undefined;
+
+            if (options.externalAutoScrape !== false) {
+              const meta = await fetchExternalMetadata(options.externalUrl);
+              title = options.externalTitle || meta.title;
+              description = options.externalDescription || meta.description;
+              imageUrl = meta.image;
+            }
+
+            let thumb: unknown;
+            if (options.externalThumbBinaryProperty) {
+              const thumbData = await this.helpers.getBinaryDataBuffer(
+                i,
+                options.externalThumbBinaryProperty,
+              );
+              const mimeType =
+                items[i].binary?.[options.externalThumbBinaryProperty]
+                  ?.mimeType ?? 'application/octet-stream';
+              const uploaded = await agent.com.atproto.repo.uploadBlob(
+                thumbData,
+                { encoding: mimeType },
+              );
+              thumb = uploaded.data.blob;
+            } else if (imageUrl) {
+              try {
+                const { bytes, mimeType } = await fetchThumbnail(imageUrl);
+                if (bytes.byteLength <= 1_000_000) {
+                  const uploaded = await agent.com.atproto.repo.uploadBlob(
+                    bytes,
+                    { encoding: mimeType },
+                  );
+                  thumb = uploaded.data.blob;
+                }
+              } catch {
+                // Thumbnail is best-effort: keep the card without it.
+              }
+            }
+
+            external = {
+              uri: options.externalUrl,
+              title,
+              description,
+              ...(thumb ? { thumb } : {}),
+            };
+          }
+
           result = (await createPost(agent, {
             text,
             langs,
             image,
+            external,
           })) as unknown as IDataObject;
         } else if (resource === 'post' && operation === 'reply') {
           const text = this.getNodeParameter('text', i) as string;

@@ -97,6 +97,22 @@ Worked examples of common workflows. Each one is a chain of nodes — names in *
 
 **Convenience fields:** the upload also exposes `cid` / `mimeType` / `size` at the top level, so `{{ $json.cid }}` works without drilling into `blob.ref.$link`.
 
+### Post a Bluesky link with an embed card
+
+The **Bluesky** node's Post → Create operation builds an `app.bsky.embed.external` link card for you. Set **External Link URL** under Options; with **Auto-Scrape Link Metadata** on (the default) it fetches the page's OpenGraph title, description and thumbnail.
+
+```
+[Bluesky: Post → Create]
+  Text: Great read 👇
+  Options:
+    External Link URL: https://example.com/article
+    Auto-Scrape Link Metadata: ✅      ← fetches og:title / og:description / og:image
+```
+
+- **Overrides:** set **Link Title** / **Link Description** to replace the scraped text, or **Link Thumbnail Binary Property** to use your own image instead of the scraped one.
+- **Scrape failures are fatal:** if auto-scrape is on and the page can't be fetched, the item errors — enable *Continue On Fail* to tolerate it. The thumbnail itself is best-effort: the card still posts if the image is missing or exceeds Bluesky's 1 MB blob limit.
+- A post carries **either** an image embed **or** a link card, not both.
+
 ### Round-trip a blob (download, transform, re-upload)
 
 Mirror a blob from another user's repo into your own. Useful for archival, format conversion, or re-hosting.

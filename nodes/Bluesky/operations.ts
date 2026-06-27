@@ -62,6 +62,13 @@ export interface CreatePostParams {
   langs?: string[];
   /** Optional image embed: pre-uploaded blob + alt text */
   image?: { blob: unknown; alt: string };
+  /** Optional external link card. `thumb` is a pre-uploaded blob. */
+  external?: {
+    uri: string;
+    title: string;
+    description: string;
+    thumb?: unknown;
+  };
 }
 
 export async function createPost(
@@ -77,10 +84,22 @@ export async function createPost(
     createdAt: new Date().toISOString(),
   };
 
+  if (params.image && params.external) {
+    throw new Error(
+      'A post can carry either an image embed or an external link card, not both.',
+    );
+  }
+
   if (params.image) {
     record.embed = {
       $type: 'app.bsky.embed.images',
       images: [{ alt: params.image.alt, image: params.image.blob }],
+    };
+  } else if (params.external) {
+    const { uri, title, description, thumb } = params.external;
+    record.embed = {
+      $type: 'app.bsky.embed.external',
+      external: { uri, title, description, ...(thumb ? { thumb } : {}) },
     };
   }
 
