@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.2.0...n8n-nodes-atproto-v0.2.1) (2026-06-27)
+
+
+### Features
+
+* external link-card embeds for Bluesky posts ([dfcb921](https://github.com/andrioid/n8n-nodes-atproto/commit/dfcb92129f70e88cbc0b164186693d3717b4fd0a))
+
 ## [0.2.0](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.1.2...n8n-nodes-atproto-v0.2.0) (2026-06-07)
 
 
