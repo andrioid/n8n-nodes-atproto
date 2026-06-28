@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.2.1...n8n-nodes-atproto-v0.2.2) (2026-06-28)
+
+
+### Bug Fixes
+
+* **atproto:** route repo reads to the hosting PDS ([655d85e](https://github.com/andrioid/n8n-nodes-atproto/commit/655d85ec072571dfdec5a3df1aac3c2d41f47d1f))
+
 ## [0.2.1](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.2.0...n8n-nodes-atproto-v0.2.1) (2026-06-27)
 
 
