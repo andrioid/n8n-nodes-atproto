@@ -9,7 +9,7 @@
  *   Get/List accept an optional `repo` to read other users' public records.
  */
 
-import type { Agent } from '@atproto/api';
+import { Agent } from '@atproto/api';
 import type { LexiconSchema } from './lexicon';
 
 // ---------------------------------------------------------------------------
@@ -185,6 +185,76 @@ async function resolveActorToDid(
 }
 
 // ---------------------------------------------------------------------------
+// Read routing — direct repo reads to the PDS that hosts the target repo
+// ---------------------------------------------------------------------------
+
+interface DidDocument {
+  service?: Array<{ id: string; type: string; serviceEndpoint: unknown }>;
+}
+
+/**
+ * Map a DID to the URL of its DID document. Supports did:plc (PLC directory)
+ * and did:web.
+ */
+function didDocumentUrl(did: string): string {
+  if (did.startsWith('did:plc:')) {
+    return `https://plc.directory/${did}`;
+  }
+  if (did.startsWith('did:web:')) {
+    const [host, ...path] = did
+      .slice('did:web:'.length)
+      .split(':')
+      .map(decodeURIComponent);
+    return path.length === 0
+      ? `https://${host}/.well-known/did.json`
+      : `https://${host}/${path.join('/')}/did.json`;
+  }
+  throw new Error(`Unsupported DID method: ${did}`);
+}
+
+/**
+ * Resolve a DID's hosting PDS endpoint from its DID document.
+ */
+async function resolvePdsEndpoint(did: string): Promise<string> {
+  const res = await fetch(didDocumentUrl(did));
+  if (!res.ok) {
+    throw new Error(`Failed to resolve DID ${did}: HTTP ${res.status}`);
+  }
+  const doc = (await res.json()) as DidDocument;
+  const endpoint = doc.service?.find((s) =>
+    s.id.endsWith('#atproto_pds'),
+  )?.serviceEndpoint;
+  if (typeof endpoint !== 'string' || endpoint.length === 0) {
+    throw new Error(`No PDS endpoint found in DID document for ${did}`);
+  }
+  return endpoint;
+}
+
+/**
+ * Resolve the repo to read from into a DID plus an Agent pointed at the PDS
+ * that hosts it. Repo-hosting reads (getRecord, listRecords, getBlob,
+ * listBlobs) must hit that PDS — the authenticated session's PDS only serves
+ * its own repos and answers "Could not find repo" for any other.
+ *
+ * The session agent is reused for the user's own repo (already on the correct
+ * PDS); foreign repos get an unauthenticated Agent, since these reads are
+ * public.
+ */
+async function resolveReadTarget(
+  agent: Agent,
+  actor?: string,
+): Promise<{ did: string; agent: Agent }> {
+  if (!actor || actor.trim() === '') {
+    return { did: getOwnDid(agent), agent };
+  }
+  const did = await resolveActorToDid(agent, actor);
+  if (did === agent.did) {
+    return { did, agent };
+  }
+  return { did, agent: new Agent(await resolvePdsEndpoint(did)) };
+}
+
+// ---------------------------------------------------------------------------
 // Const injection
 // ---------------------------------------------------------------------------
 
@@ -244,10 +314,10 @@ export async function getRecord(
   agent: Agent,
   params: GetRecordParams,
 ): Promise<GetRecordResult> {
-  const repo = params.repo ?? getOwnDid(agent);
+  const { did, agent: reader } = await resolveReadTarget(agent, params.repo);
 
-  const response = await agent.com.atproto.repo.getRecord({
-    repo,
+  const response = await reader.com.atproto.repo.getRecord({
+    repo: did,
     collection: params.collection,
     rkey: params.rkey,
   });
@@ -313,10 +383,10 @@ export async function listRecords(
   agent: Agent,
   params: ListRecordsParams,
 ): Promise<ListRecordsResult> {
-  const repo = params.repo ?? getOwnDid(agent);
+  const { did, agent: reader } = await resolveReadTarget(agent, params.repo);
 
-  const response = await agent.com.atproto.repo.listRecords({
-    repo,
+  const response = await reader.com.atproto.repo.listRecords({
+    repo: did,
     collection: params.collection,
     limit: params.limit,
     cursor: params.cursor,
@@ -388,8 +458,10 @@ export async function getBlob(
   agent: Agent,
   params: GetBlobParams,
 ): Promise<GetBlobResult> {
-  const response = await agent.com.atproto.sync.getBlob({
-    did: params.did,
+  const { did, agent: reader } = await resolveReadTarget(agent, params.did);
+
+  const response = await reader.com.atproto.sync.getBlob({
+    did,
     cid: params.cid,
   });
 
@@ -417,9 +489,9 @@ export async function listBlobs(
   agent: Agent,
   params: ListBlobsParams = {},
 ): Promise<ListBlobsResult> {
-  const did = params.did ?? getOwnDid(agent);
+  const { did, agent: reader } = await resolveReadTarget(agent, params.did);
 
-  const response = await agent.com.atproto.sync.listBlobs({
+  const response = await reader.com.atproto.sync.listBlobs({
     did,
     limit: params.limit,
     cursor: params.cursor,

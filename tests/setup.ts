@@ -309,6 +309,20 @@ export const server = setupServer(
     }
   }),
 
+  // DID document resolution (PLC directory) — point every repo at the mock
+  // PDS so foreign-repo reads route back to these handlers.
+  http.get(/plc\.directory/, () => {
+    return HttpResponse.json({
+      service: [
+        {
+          id: '#atproto_pds',
+          type: 'AtprotoPersonalDataServer',
+          serviceEndpoint: PDS_URL,
+        },
+      ],
+    });
+  }),
+
   // Catch-all: bypass any unhandled request (DID resolution, etc.)
   // to avoid MSW errors when @atproto/api makes internal requests.
   http.all('*', async () => {
