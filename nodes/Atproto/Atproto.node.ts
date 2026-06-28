@@ -44,14 +44,54 @@ import { validateRecord } from './validation';
 // ---------------------------------------------------------------------------
 
 /**
+ * The PDS host an operation dispatched to, tagged onto thrown errors by the
+ * operations layer. Lets messages name which server failed — important now
+ * that reads route to the target repo's PDS, not the session's.
+ */
+function errorPdsHost(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'pdsHost' in error
+    ? (error as { pdsHost?: string }).pdsHost
+    : undefined;
+}
+
+/**
+ * Build a rate-limit message from the standard atproto rate-limit headers.
+ * `ratelimit-reset` is a unix epoch (seconds); `retry-after` is a fallback.
+ */
+function rateLimitMessage(
+  headers: Record<string, string | undefined> | undefined,
+  pdsHost?: string,
+): string {
+  const who = pdsHost ? `Rate limited by ${pdsHost}` : 'Rate limited';
+  const reset = headers?.['ratelimit-reset'];
+  const retryAfter = headers?.['retry-after'];
+
+  let seconds: number | undefined;
+  if (reset !== undefined && Number.isFinite(Number(reset))) {
+    seconds = Math.max(0, Math.ceil(Number(reset) - Date.now() / 1000));
+  } else if (retryAfter !== undefined && Number.isFinite(Number(retryAfter))) {
+    seconds = Math.max(0, Math.ceil(Number(retryAfter)));
+  }
+
+  if (seconds === undefined) return `${who} — try again later`;
+  const when = new Date(Date.now() + seconds * 1000).toISOString();
+  return `${who} — retry after ${seconds}s (resets at ${when})`;
+}
+
+/**
  * Maps XRPC error messages to user-friendly descriptions.
  */
-function friendlyError(error: unknown, context?: Record<string, string>): string {
+export function friendlyError(error: unknown, context?: Record<string, string>): string {
   const message = error instanceof Error ? error.message : String(error);
   const status =
     error && typeof error === 'object' && 'status' in error
       ? (error as { status: number }).status
       : 0;
+  const headers =
+    error && typeof error === 'object' && 'headers' in error
+      ? (error as { headers?: Record<string, string | undefined> }).headers
+      : undefined;
+  const pdsHost = errorPdsHost(error);
 
   if (status === 401 || status === 403 || message.includes('Authentication')) {
     return 'Authentication failed — check your app password';
@@ -80,9 +120,7 @@ function friendlyError(error: unknown, context?: Record<string, string>): string
     return 'Blob too large — the PDS rejected the upload (bsky.social limits blobs to ~1 MB)';
   }
   if (status === 429 || message.includes('RateLimit')) {
-    const match = message.match(/retry.*?(\d+)/i);
-    const seconds = match ? match[1] : '?';
-    return `Rate limited — retry after ${seconds}s`;
+    return rateLimitMessage(headers, pdsHost);
   }
   if (
     message.includes('fetch failed') ||
@@ -90,13 +128,12 @@ function friendlyError(error: unknown, context?: Record<string, string>): string
     message.includes('ECONNREFUSED') ||
     message.includes('ENOTFOUND')
   ) {
-    const url = context?.serviceUrl ?? 'PDS';
-    return `Could not reach ${url}`;
+    return `Could not reach ${pdsHost ?? context?.serviceUrl ?? 'PDS'}`;
   }
   if (message.includes('InvalidRecord') || message.includes('invalid record')) {
     return `Record validation failed: ${message}`;
   }
-  return message;
+  return pdsHost ? `${message} (via ${pdsHost})` : message;
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,11 +1123,10 @@ export class Atproto implements INodeType {
           });
           continue;
         }
-        throw new NodeOperationError(
-          this.getNode(),
-          error instanceof Error ? error : new Error(String(error)),
-          { itemIndex: i },
-        );
+        throw new NodeOperationError(this.getNode(), friendlyError(error), {
+          itemIndex: i,
+          description: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 

@@ -243,15 +243,45 @@ async function resolvePdsEndpoint(did: string): Promise<string> {
 async function resolveReadTarget(
   agent: Agent,
   actor?: string,
-): Promise<{ did: string; agent: Agent }> {
+): Promise<{ did: string; agent: Agent; pdsHost: string | undefined }> {
   if (!actor || actor.trim() === '') {
-    return { did: getOwnDid(agent), agent };
+    return { did: getOwnDid(agent), agent, pdsHost: ownPdsHost(agent) };
   }
   const did = await resolveActorToDid(agent, actor);
   if (did === agent.did) {
-    return { did, agent };
+    return { did, agent, pdsHost: ownPdsHost(agent) };
   }
-  return { did, agent: new Agent(await resolvePdsEndpoint(did)) };
+  const endpoint = await resolvePdsEndpoint(did);
+  return { did, agent: new Agent(endpoint), pdsHost: new URL(endpoint).host };
+}
+
+/**
+ * Best-effort host of the PDS the authenticated session talks to.
+ */
+function ownPdsHost(agent: Agent): string | undefined {
+  const sm = agent.sessionManager as {
+    dispatchUrl?: URL;
+    pdsUrl?: URL;
+    serviceUrl?: URL;
+  };
+  return (sm.dispatchUrl ?? sm.pdsUrl ?? sm.serviceUrl)?.host;
+}
+
+/**
+ * Run an XRPC call, tagging any thrown error with the PDS host it was sent to
+ * so callers can report which server failed (e.g. on rate limits).
+ */
+function withPdsHost<T>(
+  host: string | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!host) return fn();
+  return fn().catch((err: unknown) => {
+    if (err && typeof err === 'object' && !('pdsHost' in err)) {
+      (err as { pdsHost?: string }).pdsHost = host;
+    }
+    throw err;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -294,13 +324,15 @@ export async function createRecord(
   ensure$type(record, params.collection);
   ensureCreatedAt(record);
 
-  const response = await agent.com.atproto.repo.createRecord({
-    repo,
-    collection: params.collection,
-    rkey: params.rkey,
-    record,
-    swapCommit: params.swapCommit,
-  });
+  const response = await withPdsHost(ownPdsHost(agent), () =>
+    agent.com.atproto.repo.createRecord({
+      repo,
+      collection: params.collection,
+      rkey: params.rkey,
+      record,
+      swapCommit: params.swapCommit,
+    }),
+  );
 
   const data = response.data;
   return { uri: data.uri, cid: data.cid };
@@ -314,13 +346,18 @@ export async function getRecord(
   agent: Agent,
   params: GetRecordParams,
 ): Promise<GetRecordResult> {
-  const { did, agent: reader } = await resolveReadTarget(agent, params.repo);
+  const { did, agent: reader, pdsHost } = await resolveReadTarget(
+    agent,
+    params.repo,
+  );
 
-  const response = await reader.com.atproto.repo.getRecord({
-    repo: did,
-    collection: params.collection,
-    rkey: params.rkey,
-  });
+  const response = await withPdsHost(pdsHost, () =>
+    reader.com.atproto.repo.getRecord({
+      repo: did,
+      collection: params.collection,
+      rkey: params.rkey,
+    }),
+  );
 
   const data = response.data as {
     uri: string;
@@ -344,13 +381,15 @@ export async function putRecord(
   ensure$type(record, params.collection);
   ensureCreatedAt(record);
 
-  const response = await agent.com.atproto.repo.putRecord({
-    repo,
-    collection: params.collection,
-    rkey: params.rkey,
-    record,
-    swapCommit: params.swapCommit,
-  });
+  const response = await withPdsHost(ownPdsHost(agent), () =>
+    agent.com.atproto.repo.putRecord({
+      repo,
+      collection: params.collection,
+      rkey: params.rkey,
+      record,
+      swapCommit: params.swapCommit,
+    }),
+  );
 
   const data = response.data;
   return { uri: data.uri, cid: data.cid };
@@ -365,12 +404,14 @@ export async function deleteRecord(
 ): Promise<DeleteRecordResult> {
   const repo = params.repo ?? getOwnDid(agent);
 
-  const response = await agent.com.atproto.repo.deleteRecord({
-    repo,
-    collection: params.collection,
-    rkey: params.rkey,
-    swapCommit: params.swapCommit,
-  });
+  const response = await withPdsHost(ownPdsHost(agent), () =>
+    agent.com.atproto.repo.deleteRecord({
+      repo,
+      collection: params.collection,
+      rkey: params.rkey,
+      swapCommit: params.swapCommit,
+    }),
+  );
 
   return response.data as DeleteRecordResult;
 }
@@ -383,14 +424,19 @@ export async function listRecords(
   agent: Agent,
   params: ListRecordsParams,
 ): Promise<ListRecordsResult> {
-  const { did, agent: reader } = await resolveReadTarget(agent, params.repo);
+  const { did, agent: reader, pdsHost } = await resolveReadTarget(
+    agent,
+    params.repo,
+  );
 
-  const response = await reader.com.atproto.repo.listRecords({
-    repo: did,
-    collection: params.collection,
-    limit: params.limit,
-    cursor: params.cursor,
-  });
+  const response = await withPdsHost(pdsHost, () =>
+    reader.com.atproto.repo.listRecords({
+      repo: did,
+      collection: params.collection,
+      limit: params.limit,
+      cursor: params.cursor,
+    }),
+  );
 
   const data = response.data as {
     records: Array<{
@@ -431,9 +477,11 @@ export async function uploadBlob(
   agent: Agent,
   params: UploadBlobParams,
 ): Promise<UploadBlobResult> {
-  const response = await agent.com.atproto.repo.uploadBlob(params.data, {
-    encoding: params.mimeType,
-  });
+  const response = await withPdsHost(ownPdsHost(agent), () =>
+    agent.com.atproto.repo.uploadBlob(params.data, {
+      encoding: params.mimeType,
+    }),
+  );
 
   // BlobRef serializes to the on-the-wire JSON shape via toJSON();
   // calling it explicitly gives us a plain object that's safe to return
@@ -458,12 +506,17 @@ export async function getBlob(
   agent: Agent,
   params: GetBlobParams,
 ): Promise<GetBlobResult> {
-  const { did, agent: reader } = await resolveReadTarget(agent, params.did);
+  const { did, agent: reader, pdsHost } = await resolveReadTarget(
+    agent,
+    params.did,
+  );
 
-  const response = await reader.com.atproto.sync.getBlob({
-    did,
-    cid: params.cid,
-  });
+  const response = await withPdsHost(pdsHost, () =>
+    reader.com.atproto.sync.getBlob({
+      did,
+      cid: params.cid,
+    }),
+  );
 
   // response.data is a Uint8Array — convert to Buffer for n8n's binary helpers.
   const buffer = Buffer.from(response.data);
@@ -489,14 +542,19 @@ export async function listBlobs(
   agent: Agent,
   params: ListBlobsParams = {},
 ): Promise<ListBlobsResult> {
-  const { did, agent: reader } = await resolveReadTarget(agent, params.did);
+  const { did, agent: reader, pdsHost } = await resolveReadTarget(
+    agent,
+    params.did,
+  );
 
-  const response = await reader.com.atproto.sync.listBlobs({
-    did,
-    limit: params.limit,
-    cursor: params.cursor,
-    since: params.since,
-  });
+  const response = await withPdsHost(pdsHost, () =>
+    reader.com.atproto.sync.listBlobs({
+      did,
+      limit: params.limit,
+      cursor: params.cursor,
+      since: params.since,
+    }),
+  );
 
   return {
     cids: response.data.cids,

@@ -124,4 +124,33 @@ describe('read routing for foreign repos', () => {
       }),
     ).rejects.toThrow(/No PDS endpoint/);
   });
+
+  it('tags a foreign-PDS error with the host it was dispatched to', async () => {
+    server.use(
+      http.get(/plc\.directory/, () =>
+        HttpResponse.json({
+          service: [
+            {
+              id: '#atproto_pds',
+              type: 'AtprotoPersonalDataServer',
+              serviceEndpoint: FOREIGN_PDS,
+            },
+          ],
+        }),
+      ),
+      http.get(`${FOREIGN_PDS}/xrpc/com.atproto.repo.listRecords`, () =>
+        HttpResponse.json(
+          { error: 'RateLimitExceeded', message: 'Rate Limit Exceeded' },
+          { status: 429, headers: { 'ratelimit-reset': '9999999999' } },
+        ),
+      ),
+    );
+
+    await expect(
+      listRecords(agent, {
+        collection: 'site.standard.publication',
+        repo: FOREIGN_DID,
+      }),
+    ).rejects.toMatchObject({ status: 429, pdsHost: 'foreign.host.example' });
+  });
 });
