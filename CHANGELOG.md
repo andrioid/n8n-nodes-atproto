@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.2.2...n8n-nodes-atproto-v0.2.3) (2026-06-28)
+
+
+### Bug Fixes
+
+* **atproto:** name the PDS in errors and parse rate-limit timing ([0a73226](https://github.com/andrioid/n8n-nodes-atproto/commit/0a7322630f7a799d83df66f94691158c284118fd))
+
 ## [0.2.2](https://github.com/andrioid/n8n-nodes-atproto/compare/n8n-nodes-atproto-v0.2.1...n8n-nodes-atproto-v0.2.2) (2026-06-28)
 
 
